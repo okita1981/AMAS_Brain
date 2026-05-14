@@ -954,31 +954,101 @@ export async function generateBannerImage(
     [BannerType.Vertical]: "1080x1920",   // Stories / Reels
   };
 
+  // Per-preset layout instructions. Verbose on purpose: gpt-image-1 needs
+  // explicit spatial guidance to place Japanese text reliably.
   const presetGuide: Record<string, string> = {
-    impact:  "Place the main headline large and bold in the center. Maximum visual impact.",
-    catalog: "Place text on the right half; leave the left half for product / service imagery.",
-    minimal: "Place text small and refined at the bottom; let the background photography breathe.",
+    impact: [
+      "LAYOUT — IMPACT (center stage):",
+      "- The MAIN HEADLINE is the visual hero: place it dead-center, occupying roughly 25-30% of the canvas height in massive bold Japanese type.",
+      "- If a SUB HEADLINE exists, place it directly under the headline at roughly half the headline size, with a small gap.",
+      "- The CTA button sits in the lower third, horizontally centered, as a clearly visible rounded rectangle filled with a vivid accent color.",
+      "- Subtly darken or blur the area behind the headline so the type pops; keep the rest of the background crisp.",
+    ].join("\n"),
+
+    catalog: [
+      "LAYOUT — CATALOG (split composition, magazine style):",
+      "- Divide the canvas into two vertical halves at 50/50.",
+      "- LEFT HALF: a full-bleed hero photograph of the product / service implied by the background scene description.",
+      "- RIGHT HALF: a clean panel (white or very light tinted background) holding a vertical text stack:",
+      "    1) MAIN HEADLINE at the top of the right panel, large bold Japanese sans-serif.",
+      "    2) SUB HEADLINE just below in a lighter weight.",
+      "    3) CTA button anchored to the lower portion of the right panel in an accent color.",
+      "- Keep generous padding inside the right panel; avoid touching the canvas edges.",
+    ].join("\n"),
+
+    minimal: [
+      "LAYOUT — MINIMAL (bottom band, photo-led):",
+      "- The background photograph fills the full canvas.",
+      "- Reserve the BOTTOM 20-25% of the canvas as a text area, using a semi-transparent dark or light band (whichever maximises contrast against the photo).",
+      "- Inside that band, stack: SUB HEADLINE (small, top), MAIN HEADLINE (mid-size, prominent), CTA pill (right-aligned or centered).",
+      "- Top 75-80% remains uncluttered photography — no overlaid text up there.",
+    ].join("\n"),
   };
 
-  // Build a single prompt that asks gpt-image-1 to render the copy text directly
-  // onto the banner. We are explicit about which strings to render to reduce
-  // hallucinated typography.
-  let fullPrompt = `Professional, high-conversion advertisement banner. ${prompt}`;
+  // Per-size optimization. gpt-image-1 still composes around the requested
+  // aspect even when the requested resolution is remapped on the backend.
+  const sizeGuide: Record<BannerType, string> = {
+    [BannerType.Square]: [
+      "FORMAT — 1080x1080 (Instagram / SNS square):",
+      "- Single dominant focal point. Bold, impact-first composition.",
+      "- Keep typography large and confident; this format is scanned in 1-2 seconds in a feed.",
+      "- Safe margins of ~6% on every side so nothing critical is cropped by SNS UI.",
+    ].join("\n"),
+
+    [BannerType.Wide]: [
+      "FORMAT — 1200x628 (OGP / landscape banner):",
+      "- Horizontal composition. Place primary visual element on one side, text block on the other.",
+      "- Allow more information density: headline + subheadline + CTA can all coexist comfortably.",
+      "- Keep critical text well inside the central 80% of the canvas; OGP previews crop edges aggressively.",
+    ].join("\n"),
+
+    [BannerType.Vertical]: [
+      "FORMAT — 1080x1920 (Stories / Reels vertical):",
+      "- TOP ~55-60% of the canvas: background photograph / product imagery.",
+      "- BOTTOM ~40-45%: text area stacked vertically (headline → subheadline → CTA).",
+      "- Keep the very top 10% and very bottom 10% clear of essential text (UI chrome / profile bar / reactions overlay).",
+    ].join("\n"),
+  };
+
+  // Quality directives — applied to every banner regardless of preset / size.
+  const qualityDirectives = [
+    "QUALITY REQUIREMENTS (must satisfy ALL):",
+    "- Professional advertisement quality, polished commercial finish suitable for paid media.",
+    "- Japanese text MUST be perfectly rendered: every kana / kanji / character correct, no garbled glyphs, no invented characters, no Latin substitutes.",
+    "- Clean modern design — no decorative clutter, no random shapes, no watermarks, no logos other than what is explicitly described.",
+    "- High contrast between text and its background for instant readability at small sizes.",
+    "- Use a clean Japanese sans-serif style (think Noto Sans JP / ヒラギノ角ゴ / 游ゴシック). Proper kerning and line spacing.",
+    "- Do NOT add any text beyond what is listed in the TEXT TO RENDER block.",
+  ].join("\n");
+
+  // Compose the final prompt.
+  let fullPrompt = `PROFESSIONAL ADVERTISEMENT BANNER
+
+BACKGROUND SCENE:
+${prompt}
+
+${qualityDirectives}
+
+${sizeGuide[aspectRatio]}
+
+${presetGuide[preset as string] || presetGuide.impact}`;
 
   if (copyText && (copyText.headline || copyText.cta)) {
     const textLines: string[] = [];
-    if (copyText.headline)    textLines.push(`MAIN HEADLINE (largest, most prominent): "${copyText.headline}"`);
-    if (copyText.subheadline) textLines.push(`SUB HEADLINE (smaller, supporting): "${copyText.subheadline}"`);
-    if (copyText.cta)         textLines.push(`CTA BUTTON LABEL (inside a clearly visible button): "${copyText.cta}"`);
+    if (copyText.headline)    textLines.push(`- MAIN HEADLINE (largest, most prominent): 「${copyText.headline}」`);
+    if (copyText.subheadline) textLines.push(`- SUB HEADLINE (medium, supporting): 「${copyText.subheadline}」`);
+    if (copyText.cta)         textLines.push(`- CTA BUTTON LABEL (inside a clearly visible rounded button): 「${copyText.cta}」`);
 
     fullPrompt += `
 
-The banner MUST render the following Japanese text exactly as written, with clean modern typography, no misspellings, no extra text:
+TEXT TO RENDER (exact Japanese strings, render character-by-character with NO substitutions):
 ${textLines.join("\n")}
 
-Layout intent: ${presetGuide[preset as string] || presetGuide.impact}
-Typography: legible Japanese sans-serif, high contrast against the background, properly kerned.
-Do not add any text beyond what is listed above.`;
+TEXT STYLING:
+- Headline: bold, large, dark on light backgrounds OR white on dark backgrounds — whichever yields the highest contrast.
+- Subheadline: regular weight, ~50-60% of headline size, same family.
+- CTA: filled rounded-rectangle button using a vivid accent color (e.g. accent orange / coral / cyan / brand red) with white text inside. The button must look tappable.
+- Verify every Japanese character is rendered correctly before finalising the image.`;
   } else {
     fullPrompt += `\n\nNo text overlays in the image.`;
   }
@@ -989,7 +1059,8 @@ Do not add any text beyond what is listed above.`;
     body: JSON.stringify({
       prompt: fullPrompt,
       size: sizeMap[aspectRatio],
-      style: "modern, premium, high-CVR advertising banner",
+      style: "modern, premium, high-conversion Japanese advertising banner with perfectly rendered Japanese typography",
+      quality: "high",
     }),
   });
 
