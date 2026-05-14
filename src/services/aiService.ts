@@ -60,6 +60,42 @@ async function callClaude(params: {
   return response.json();
 }
 
+// Helper to call GPT-4o via Backend. Returns the raw OpenAI Chat Completion
+// response. Read the assistant text via `result.choices[0].message.content`.
+async function callGPT(params: {
+  model?: string;
+  system?: string;
+  messages: { role: 'user' | 'assistant'; content: string }[];
+  temperature?: number;
+  response_format?: { type: 'json_object' | 'text' };
+}): Promise<{ choices: Array<{ message: { role: string; content: string } }> }> {
+  const openaiMessages: { role: string; content: string }[] = [];
+  if (params.system) openaiMessages.push({ role: 'system', content: params.system });
+  openaiMessages.push(...params.messages);
+
+  const response = await fetch("/api/ai/gpt", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: params.model || 'gpt-4o',
+      messages: openaiMessages,
+      temperature: params.temperature,
+      response_format: params.response_format,
+    }),
+  });
+
+  if (!response.ok) {
+    let message = "Failed to call GPT API";
+    try {
+      const err = await response.json();
+      message = err.error || message;
+    } catch {}
+    throw new Error(message);
+  }
+
+  return response.json();
+}
+
 export async function generateAdSuggestions(
   industry: string,
   goal: string,
@@ -95,19 +131,20 @@ export async function generateAdSuggestions(
     }
   `;
 
-  // Claude is the primary engine for all plans. Gemini is the fallback.
+  // GPT-4o is the primary engine for copy/creative generation. Gemini is the fallback.
   try {
-    const result = await callClaude({
-      model: "claude-sonnet-4-5",
-      system: "あなたはプロの広告運用エージェントです。JSON形式で回答してください。",
-      messages: [{ role: 'user', content: prompt }]
+    const result = await callGPT({
+      model: "gpt-4o",
+      system: "あなたはプロの広告運用エージェントです。JSON形式のみで回答してください。",
+      messages: [{ role: 'user', content: prompt }],
+      response_format: { type: 'json_object' },
     });
 
-    const content = result.content[0].text;
+    const content = result.choices[0].message.content;
     const jsonMatch = content.match(/\{[\s\S]*\}/);
     return JSON.parse(jsonMatch ? jsonMatch[0] : content) as AdSuggestions;
   } catch (error) {
-    console.warn("Claude API failed, falling back to Gemini:", error);
+    console.warn("GPT-4o failed, falling back to Gemini:", error);
     // Continue to Gemini logic below
   }
 
@@ -188,18 +225,19 @@ export async function getAIAdvice(
     }
   `;
 
-  // Claude is the primary engine for all plans. Gemini is the fallback.
+  // GPT-4o is the primary engine for copy/creative generation. Gemini is the fallback.
   try {
-    const result = await callClaude({
-      model: "claude-sonnet-4-5",
-      system: "あなたは広告診断の専門家です。JSON形式で回答してください。",
-      messages: [{ role: 'user', content: prompt }]
+    const result = await callGPT({
+      model: "gpt-4o",
+      system: "あなたは広告診断の専門家です。JSON形式のみで回答してください。",
+      messages: [{ role: 'user', content: prompt }],
+      response_format: { type: 'json_object' },
     });
-    const resContent = result.content[0].text;
+    const resContent = result.choices[0].message.content;
     const jsonMatch = resContent.match(/\{[\s\S]*\}/);
     return JSON.parse(jsonMatch ? jsonMatch[0] : resContent) as AIAdvice;
   } catch (error) {
-    console.warn("Claude API failed, falling back to Gemini:", error);
+    console.warn("GPT-4o failed, falling back to Gemini:", error);
   }
 
   const response = await callGemini({
@@ -325,18 +363,19 @@ export async function generateMarketingContent(
   const prompt = prompts[type];
   let generatedData;
 
-  // Claude is the primary engine for all plans. Gemini is the fallback.
+  // GPT-4o is the primary engine for copy/creative generation. Gemini is the fallback.
   try {
-    const result = await callClaude({
-      model: "claude-sonnet-4-5",
-      system: "あなたはマーケティングの専門家です。JSON形式で回答してください。",
-      messages: [{ role: 'user', content: prompt }]
+    const result = await callGPT({
+      model: "gpt-4o",
+      system: "あなたはマーケティングの専門家です。JSON形式のみで回答してください。",
+      messages: [{ role: 'user', content: prompt }],
+      response_format: { type: 'json_object' },
     });
-    const resContent = result.content[0].text;
+    const resContent = result.choices[0].message.content;
     const jsonMatch = resContent.match(/\{[\s\S]*\}/);
     generatedData = JSON.parse(jsonMatch ? jsonMatch[0] : resContent);
   } catch (error) {
-    console.warn("Claude API failed, falling back to Gemini:", error);
+    console.warn("GPT-4o failed, falling back to Gemini:", error);
   }
 
   if (!generatedData) {
@@ -390,18 +429,19 @@ export async function generateMarketingContent(
 
   let safetyData;
   try {
-    // Claude is the primary safety engine for all plans. Gemini is the fallback.
+    // GPT-4o is the primary safety engine. Gemini is the fallback.
     try {
-      const result = await callClaude({
-        model: "claude-sonnet-4-5",
-        system: "あなたはコンテンツ検閲エンジンです。JSON形式で回答してください。",
-        messages: [{ role: 'user', content: safetyCheckPrompt }]
+      const result = await callGPT({
+        model: "gpt-4o",
+        system: "あなたはコンテンツ検閲エンジンです。JSON形式のみで回答してください。",
+        messages: [{ role: 'user', content: safetyCheckPrompt }],
+        response_format: { type: 'json_object' },
       });
-      const resContent = result.content[0].text;
+      const resContent = result.choices[0].message.content;
       const jsonMatch = resContent.match(/\{[\s\S]*\}/);
       safetyData = JSON.parse(jsonMatch ? jsonMatch[0] : resContent);
-    } catch (claudeErr) {
-      console.warn("Claude safety check failed, falling back to Gemini:", claudeErr);
+    } catch (gptErr) {
+      console.warn("GPT-4o safety check failed, falling back to Gemini:", gptErr);
       const safetyResponse = await callGemini({
         model: "gemini-2.0-flash",
         contents: safetyCheckPrompt,
@@ -640,16 +680,17 @@ A：Agencyプランでクライアント管理機能が使えます。
 ---
   `;
 
-  // Claude is the primary engine for all plans. Gemini is the fallback.
+  // GPT-4o is the primary engine for copy/creative generation. Gemini is the fallback.
   try {
-    const result = await callClaude({
-      model: "claude-sonnet-4-5",
+    const result = await callGPT({
+      model: "gpt-4o",
       system: systemInstruction,
-      messages: [{ role: 'user', content: query }]
+      messages: [{ role: 'user', content: query }],
+      temperature: 0.7,
     });
-    return result.content[0].text;
+    return result.choices[0].message.content;
   } catch (error) {
-    console.warn("Claude API failed, falling back to Gemini:", error);
+    console.warn("GPT-4o failed, falling back to Gemini:", error);
   }
 
   const response = await callGemini({
@@ -838,22 +879,23 @@ AMAS バナーデザイン・プランナー（コンセプト + コピーテキ
 }
 `;
 
-  // Primary: Claude generates concept + copy text (better Japanese copywriting).
+  // Primary: GPT-4o generates concept + copy text.
   try {
-    const result = await callClaude({
-      model: "claude-sonnet-4-5",
+    const result = await callGPT({
+      model: "gpt-4o",
       system: "あなたは熟練の広告クリエイティブディレクター兼コピーライターです。JSON形式のみで応答してください。",
       messages: [{ role: 'user', content: prompt }],
       temperature: 0.7,
+      response_format: { type: 'json_object' },
     });
-    const text = result?.content?.[0]?.text || "";
+    const text = result?.choices?.[0]?.message?.content || "";
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     const parsed = JSON.parse(jsonMatch ? jsonMatch[0] : text);
     if (Array.isArray(parsed.suggestions) && parsed.suggestions.length > 0) {
       return parsed.suggestions as BannerSuggestion[];
     }
   } catch (error) {
-    console.warn("Claude banner suggestions failed, falling back to Gemini:", error);
+    console.warn("GPT-4o banner suggestions failed, falling back to Gemini:", error);
   }
 
   // Fallback: Gemini (structured JSON via responseSchema).
