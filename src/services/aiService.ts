@@ -180,7 +180,7 @@ export async function generateAdSuggestions(
 
   // Gemini fallback
   const response = await callGemini({
-    model: "gemini-2.0-flash",
+    model: "gemini-1.5-flash",
     contents: prompt,
     config: {
       responseMimeType: "application/json",
@@ -271,7 +271,7 @@ export async function getAIAdvice(
   }
 
   const response = await callGemini({
-    model: "gemini-2.0-flash",
+    model: "gemini-1.5-flash",
     contents: prompt,
     config: {
       responseMimeType: "application/json",
@@ -411,7 +411,7 @@ export async function generateMarketingContent(
   if (!generatedData) {
     try {
       const response = await callGemini({
-        model: "gemini-2.0-flash",
+        model: "gemini-1.5-flash",
         contents: prompt,
         config: {
           responseMimeType: "application/json",
@@ -473,7 +473,7 @@ export async function generateMarketingContent(
     } catch (gptErr) {
       console.warn("GPT-4o safety check failed, falling back to Gemini:", gptErr);
       const safetyResponse = await callGemini({
-        model: "gemini-2.0-flash",
+        model: "gemini-1.5-flash",
         contents: safetyCheckPrompt,
         config: {
           responseMimeType: "application/json",
@@ -560,7 +560,7 @@ export async function getOrchestrationPlan(
   }
 
   const response = await callGemini({
-    model: "gemini-2.0-flash",
+    model: "gemini-1.5-flash",
     contents: prompt,
     config: {
       responseMimeType: "application/json",
@@ -724,7 +724,7 @@ A：Agencyプランでクライアント管理機能が使えます。
   }
 
   const response = await callGemini({
-    model: "gemini-2.0-flash",
+    model: "gemini-1.5-flash",
     contents: query,
     config: {
       systemInstruction,
@@ -765,7 +765,7 @@ export async function getAIHearingQuestions(industry: string, plan: PlanType = '
     }
 
     const response = await callGemini({
-      model: "gemini-2.0-flash",
+      model: "gemini-1.5-flash",
       contents: prompt,
       config: {
         responseMimeType: "application/json",
@@ -829,7 +829,7 @@ export async function checkAdContentCensorship(
   }
 
   const response = await callGemini({
-    model: "gemini-2.0-flash",
+    model: "gemini-1.5-flash",
     contents: prompt,
     config: {
       responseMimeType: "application/json",
@@ -930,7 +930,7 @@ AMAS バナーデザイン・プランナー（コンセプト + コピーテキ
 
   // Fallback: Gemini (structured JSON via responseSchema).
   const response = await callGemini({
-    model: "gemini-2.0-flash",
+    model: "gemini-1.5-flash",
     contents: prompt,
     config: {
       responseMimeType: "application/json",
