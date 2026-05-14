@@ -63,11 +63,8 @@ service cloud.firestore {
 
     function isAdmin() {
       return isAuthenticated() &&
-        (
-          (request.auth.token.email == "kousuke.okita@gmail.com") ||
-          (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
-           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin')
-        );
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
     }
 
     function isValidUser(data) {
@@ -257,7 +254,9 @@ service cloud.firestore {
 
     match /satellite_pages/{pageId} {
       allow read: if resource.data.status == 'published' || isAdmin() || (isAuthenticated() && resource.data.ownerUid == request.auth.uid);
-      allow list: if isAdmin() || (isAuthenticated() && (request.query.limit <= 100)) || (request.query.status == 'published'); 
+      // List is constrained so users can only enumerate their own documents.
+      // Frontend MUST include where('ownerUid', '==', auth.uid) (and limit <= 100) for the query to satisfy this rule.
+      allow list: if isAdmin() || (isAuthenticated() && resource.data.ownerUid == request.auth.uid && request.query.limit <= 100);
       allow create: if isAuthenticated() && isValidSatellitePage(request.resource.data) && (request.resource.data.ownerUid == request.auth.uid || isAdmin());
       allow update: if (isAdmin() || (isAuthenticated() && resource.data.ownerUid == request.auth.uid) || (resource.data.status == 'published' && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['metrics']))) && isValidSatellitePage(request.resource.data) && (isAdmin() || request.resource.data.ownerUid == resource.data.ownerUid);
       allow delete: if isAdmin() || (isAuthenticated() && resource.data.ownerUid == request.auth.uid);

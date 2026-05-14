@@ -101,12 +101,6 @@ export default function Wallet({ userUid }: WalletProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [isCharging, setIsCharging] = useState(false);
   const [chargeAmount, setChargeAmount] = useState(55000);
-  const [cardFormData, setCardFormData] = useState({
-    number: '',
-    expiry: '',
-    cvc: '',
-    name: ''
-  });
   const [showChargeModal, setShowChargeModal] = useState(false);
   const [showAddCardModal, setShowAddCardModal] = useState(false);
   const [isSavingCard, setIsSavingCard] = useState(false);
@@ -122,6 +116,12 @@ export default function Wallet({ userUid }: WalletProps) {
       window.history.replaceState({}, '', window.location.pathname);
     } else if (params.get('canceled') === 'true') {
       setError('決済がキャンセルされました。');
+      window.history.replaceState({}, '', window.location.pathname);
+    } else if (params.get('setup_success') === 'true') {
+      setSuccessMessage('カードを登録しました。反映まで数分かかる場合があります。');
+      window.history.replaceState({}, '', window.location.pathname);
+    } else if (params.get('setup_canceled') === 'true') {
+      setError('カード登録がキャンセルされました。');
       window.history.replaceState({}, '', window.location.pathname);
     }
   }, []);
@@ -273,25 +273,20 @@ export default function Wallet({ userUid }: WalletProps) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           userId: userUid,
-          cardData: cardFormData
+          successUrl: window.location.origin + '/wallet?setup_success=true',
+          cancelUrl: window.location.origin + '/wallet?setup_canceled=true',
         }),
       });
 
       const data = await response.json();
-      if (data.success) {
-        setShowAddCardModal(false);
-        setCardFormData({
-          number: '',
-          expiry: '',
-          cvc: '',
-          name: ''
-        });
+      if (data.url) {
+        // Stripe-hosted setup page collects the card details directly.
+        window.location.href = data.url;
       } else {
-        throw new Error(data.error || "カードの登録に失敗しました。");
+        throw new Error(data.error || "カード登録セッションの作成に失敗しました。");
       }
     } catch (err: any) {
       setError(err.message);
-    } finally {
       setIsSavingCard(false);
     }
   };
@@ -832,61 +827,21 @@ export default function Wallet({ userUid }: WalletProps) {
                 </div>
 
                 <div className="space-y-6">
-                  <div className="space-y-2">
-                    <label className="text-[10px] text-gray-400 font-bold uppercase">カード番号</label>
-                    <div className="relative">
-                      <CreditCard className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-300" size={18} />
-                      <input 
-                        type="text"
-                        placeholder="0000 0000 0000 0000"
-                        className="w-full pl-12 pr-4 py-3 bg-gray-50 border-none rounded-xl text-sm font-bold focus:ring-2 focus:ring-indigo-500"
-                        value={cardFormData.number}
-                        onChange={(e) => setCardFormData({ ...cardFormData, number: e.target.value })}
-                      />
+                  <div className="flex items-start gap-3 p-4 bg-indigo-50 rounded-2xl">
+                    <ShieldCheck className="text-indigo-500 flex-shrink-0 mt-0.5" size={20} />
+                    <div className="text-xs text-gray-700 leading-relaxed">
+                      カード情報は <span className="font-bold">Stripeの安全な決済画面</span>で直接入力されます。
+                      AMASのサーバーがカード番号やCVCを受け取ることはありません。
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <label className="text-[10px] text-gray-400 font-bold uppercase">有効期限</label>
-                      <input 
-                        type="text"
-                        placeholder="MM / YY"
-                        className="w-full px-4 py-3 bg-gray-50 border-none rounded-xl text-sm font-bold focus:ring-2 focus:ring-indigo-500 text-center"
-                        value={cardFormData.expiry}
-                        onChange={(e) => setCardFormData({ ...cardFormData, expiry: e.target.value })}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-[10px] text-gray-400 font-bold uppercase">CVC</label>
-                      <input 
-                        type="text"
-                        placeholder="123"
-                        className="w-full px-4 py-3 bg-gray-50 border-none rounded-xl text-sm font-bold focus:ring-2 focus:ring-indigo-500 text-center"
-                        value={cardFormData.cvc}
-                        onChange={(e) => setCardFormData({ ...cardFormData, cvc: e.target.value })}
-                      />
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <label className="text-[10px] text-gray-400 font-bold uppercase">カード名義</label>
-                    <input 
-                      type="text"
-                      placeholder="TARO YAMADA"
-                      className="w-full px-4 py-3 bg-gray-50 border-none rounded-xl text-sm font-bold focus:ring-2 focus:ring-indigo-500"
-                      value={cardFormData.name}
-                      onChange={(e) => setCardFormData({ ...cardFormData, name: e.target.value })}
-                    />
-                  </div>
-
-                  <div className="pt-4">
-                    <button 
+                  <div className="pt-2">
+                    <button
                       onClick={handleSaveCard}
-                      disabled={isSavingCard || !cardFormData.number || !cardFormData.expiry || !cardFormData.cvc || !cardFormData.name}
+                      disabled={isSavingCard}
                       className="w-full bg-black text-white py-4 rounded-2xl font-bold hover:bg-gray-800 transition-all shadow-lg shadow-gray-200 disabled:bg-gray-300 flex items-center justify-center gap-2"
                     >
-                      {isSavingCard ? <Loader2 className="animate-spin" size={20} /> : 'カードを登録する'}
+                      {isSavingCard ? <Loader2 className="animate-spin" size={20} /> : 'Stripeで安全にカードを登録'}
                     </button>
                     <p className="text-center text-[10px] text-gray-400 mt-4">
                       登録することで、利用規約に同意したものとみなされます。

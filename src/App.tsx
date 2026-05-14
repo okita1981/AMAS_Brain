@@ -1737,7 +1737,7 @@ export default function App() {
           planExpiresAt: null,
           scheduledPlan: null,
           scheduledBillingCycle: null,
-          role: user.email === 'kousuke.okita@gmail.com' ? 'admin' : 'user',
+          role: 'user',
           lastSeenAnnouncementAt: 0,
           createdAt: Date.now(),
           memberCount: 1
@@ -8911,15 +8911,30 @@ function NewCampaignWizard({
 
     setIsGeneratingBanners(true);
     try {
-      const imageUrl = await generateBannerImage(suggestion.backgroundPrompt, type);
-      
+      // GPT Image 2 now bakes the copy text directly into the banner. Use Claude's
+      // suggested copy when available, otherwise fall back to the form values.
+      const headline = suggestion.copyText?.headline || formData.headline || selectedHeadlines[0] || '';
+      const cta = suggestion.copyText?.cta || formData.ctas[0] || aiSuggestions.ctas[0] || '詳細を見る';
+      const copyForImage = {
+        headline,
+        subheadline: suggestion.copyText?.subheadline,
+        cta,
+      };
+
+      const imageUrl = await generateBannerImage(
+        suggestion.backgroundPrompt,
+        type,
+        copyForImage,
+        suggestion.preset
+      );
+
       const newBanner: BannerMaster = {
         url: imageUrl,
         backgroundUrl: imageUrl,
         type: type,
         preset: suggestion.preset,
-        headline: formData.headline || selectedHeadlines[0] || '',
-        cta: formData.ctas[0] || aiSuggestions.ctas[0] || '詳細を見る',
+        headline,
+        cta,
         backgroundPrompt: suggestion.backgroundPrompt
       };
 

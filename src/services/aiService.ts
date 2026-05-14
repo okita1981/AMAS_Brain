@@ -1,15 +1,35 @@
-import { GoogleGenAI, Type } from "@google/genai";
-import { AgentType, MarketingTask, IndustryType, StrategicPlan, AIAdvice, PlatformType, AdContent, PlanType, AdCensorshipResult, BannerDesignPreset, BannerType } from "../types";
+import { Type } from "@google/genai";
+import { AgentType, MarketingTask, IndustryType, StrategicPlan, AIAdvice, PlatformType, AdContent, PlanType, AdCensorshipResult, BannerDesignPreset, BannerType, Campaign } from "../types";
 
-// Gemini (Frontend)
-// Initialized inside functions to ensure up-to-date API key
-function getGenAI() {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    console.error('[aiService] GEMINI_API_KEY is missing in environment variables');
-    throw new Error('APIキーが設定されていません。システム管理者に確認してください。');
+// Gemini is now invoked via the backend proxy at /api/ai/gemini so the API key
+// never reaches the browser. `Type` from @google/genai is just an enum of plain
+// strings used to construct responseSchema — safe to keep in the bundle.
+interface GeminiProxyResponse {
+  text?: string;
+  candidates?: any[];
+}
+
+async function callGemini(params: {
+  model: string;
+  contents: any;
+  config?: any;
+}): Promise<GeminiProxyResponse> {
+  const response = await fetch("/api/ai/gemini", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(params),
+  });
+
+  if (!response.ok) {
+    let message = "Failed to call Gemini API";
+    try {
+      const err = await response.json();
+      message = err.error || message;
+    } catch {}
+    throw new Error(message);
   }
-  return new GoogleGenAI({ apiKey });
+
+  return response.json();
 }
 
 export interface AdSuggestions {
@@ -78,7 +98,7 @@ export async function generateAdSuggestions(
   // Use Claude for Standard/Pro plans with Gemini fallback
   if (plan === 'Standard' || plan === 'Pro') {
     try {
-      const model = plan === 'Pro' ? "claude-3-opus-20240229" : "claude-3-5-sonnet-20241022";
+      const model = plan === 'Pro' ? "claude-opus-4-5" : "claude-sonnet-4-5";
       const result = await callClaude({
         model,
         system: "あなたはプロの広告運用エージェントです。JSON形式で回答してください。",
@@ -95,10 +115,8 @@ export async function generateAdSuggestions(
   }
 
   // Gemini logic (Default or Fallback)
-  const ai = getGenAI();
-  const model = "gemini-3-flash-preview";
-  const response = await ai.models.generateContent({
-    model,
+  const response = await callGemini({
+    model: "gemini-2.0-flash",
     contents: prompt,
     config: {
       responseMimeType: "application/json",
@@ -175,7 +193,7 @@ export async function getAIAdvice(
 
   if (plan === 'Standard' || plan === 'Pro') {
     try {
-      const model = plan === 'Pro' ? "claude-3-opus-20240229" : "claude-3-5-sonnet-20241022";
+      const model = plan === 'Pro' ? "claude-opus-4-5" : "claude-sonnet-4-5";
       const result = await callClaude({
         model,
         system: "あなたは広告診断の専門家です。JSON形式で回答してください。",
@@ -189,10 +207,8 @@ export async function getAIAdvice(
     }
   }
 
-  const ai = getGenAI();
-  const model = "gemini-3-flash-preview";
-  const response = await ai.models.generateContent({
-    model,
+  const response = await callGemini({
+    model: "gemini-2.0-flash",
     contents: prompt,
     config: {
       responseMimeType: "application/json",
@@ -218,14 +234,6 @@ export async function generateMarketingContent(
   plan: PlanType = 'Free'
 ): Promise<Partial<MarketingTask>> {
   console.log(`[aiService] generateMarketingContent called for type: ${type}, industry: ${industry}, plan: ${plan}`);
-  
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    console.error('[aiService] GEMINI_API_KEY is missing in environment variables');
-    throw new Error('APIキーが設定されていません。システム管理者に確認してください。');
-  }
-
-  const ai = new GoogleGenAI({ apiKey });
 
   const industryContext: Record<string, string> = {
     Dental: "歯科医院（インプラント、矯正、ホワイトニング、地域密着型SEO）",
@@ -324,7 +332,7 @@ export async function generateMarketingContent(
 
   if (plan === 'Standard' || plan === 'Pro') {
     try {
-      const model = plan === 'Pro' ? "claude-3-opus-20240229" : "claude-3-5-sonnet-20241022";
+      const model = plan === 'Pro' ? "claude-opus-4-5" : "claude-sonnet-4-5";
       const result = await callClaude({
         model,
         system: "あなたはマーケティングの専門家です。JSON形式で回答してください。",
@@ -340,9 +348,8 @@ export async function generateMarketingContent(
 
   if (!generatedData) {
     try {
-      const model = "gemini-3-flash-preview";
-      const response = await ai.models.generateContent({
-        model,
+      const response = await callGemini({
+        model: "gemini-2.0-flash",
         contents: prompt,
         config: {
           responseMimeType: "application/json",
@@ -391,7 +398,7 @@ export async function generateMarketingContent(
   let safetyData;
   try {
     if (plan === 'Standard' || plan === 'Pro') {
-      const model = "claude-3-5-sonnet-20241022";
+      const model = "claude-sonnet-4-5";
       const result = await callClaude({
         model,
         system: "あなたはコンテンツ検閲エンジンです。JSON形式で回答してください。",
@@ -401,9 +408,8 @@ export async function generateMarketingContent(
       const jsonMatch = resContent.match(/\{[\s\S]*\}/);
       safetyData = JSON.parse(jsonMatch ? jsonMatch[0] : resContent);
     } else {
-      const model = "gemini-3-flash-preview";
-      const safetyResponse = await ai.models.generateContent({
-        model,
+      const safetyResponse = await callGemini({
+        model: "gemini-2.0-flash",
         contents: safetyCheckPrompt,
         config: {
           responseMimeType: "application/json",
@@ -477,7 +483,7 @@ export async function getOrchestrationPlan(
 
   if (plan === 'Standard' || plan === 'Pro') {
     try {
-      const model = plan === 'Pro' ? "claude-3-opus-20240229" : "claude-3-5-sonnet-20241022";
+      const model = plan === 'Pro' ? "claude-opus-4-5" : "claude-sonnet-4-5";
       const result = await callClaude({
         model,
         system: "あなたは戦略立案の専門家です。JSON形式で回答してください。",
@@ -491,10 +497,8 @@ export async function getOrchestrationPlan(
     }
   }
 
-  const ai = getGenAI();
-  const model = "gemini-3-flash-preview";
-  const response = await ai.models.generateContent({
-    model,
+  const response = await callGemini({
+    model: "gemini-2.0-flash",
     contents: prompt,
     config: {
       responseMimeType: "application/json",
@@ -646,7 +650,7 @@ A：Agencyプランでクライアント管理機能が使えます。
 
   if (plan === 'Standard' || plan === 'Pro') {
     try {
-      const model = plan === 'Pro' ? "claude-3-opus-20240229" : "claude-3-5-sonnet-20241022";
+      const model = plan === 'Pro' ? "claude-opus-4-5" : "claude-sonnet-4-5";
       const result = await callClaude({
         model,
         system: systemInstruction,
@@ -658,10 +662,8 @@ A：Agencyプランでクライアント管理機能が使えます。
     }
   }
 
-  const ai = getGenAI();
-  const model = "gemini-3-flash-preview";
-  const response = await ai.models.generateContent({
-    model,
+  const response = await callGemini({
+    model: "gemini-2.0-flash",
     contents: query,
     config: {
       systemInstruction,
@@ -687,7 +689,7 @@ export async function getAIHearingQuestions(industry: string, plan: PlanType = '
   try {
     if (plan === 'Standard' || plan === 'Pro') {
       try {
-        const model = plan === 'Pro' ? "claude-3-opus-20240229" : "claude-3-5-sonnet-20241022";
+        const model = plan === 'Pro' ? "claude-opus-4-5" : "claude-sonnet-4-5";
         const result = await callClaude({
           model,
           system: "あなたはヒアリングの専門家です。JSON形式で回答してください。",
@@ -701,10 +703,8 @@ export async function getAIHearingQuestions(industry: string, plan: PlanType = '
       }
     }
 
-    const ai = getGenAI();
-    const model = "gemini-3-flash-preview";
-    const response = await ai.models.generateContent({
-      model,
+    const response = await callGemini({
+      model: "gemini-2.0-flash",
       contents: prompt,
       config: {
         responseMimeType: "application/json",
@@ -754,7 +754,7 @@ export async function checkAdContentCensorship(
   if (plan === 'Pro' || plan === 'Agency') {
     try {
       const result = await callClaude({
-        model: "claude-3-5-sonnet-20241022",
+        model: "claude-sonnet-4-5",
         system: "あなたは広告検閲の専門家です。JSON形式で回答してください。",
         messages: [{ role: 'user', content: prompt }]
       });
@@ -767,10 +767,8 @@ export async function checkAdContentCensorship(
     }
   }
 
-  const ai = getGenAI();
-  const model = "gemini-3-flash-preview";
-  const response = await ai.models.generateContent({
-    model,
+  const response = await callGemini({
+    model: "gemini-2.0-flash",
     contents: prompt,
     config: {
       responseMimeType: "application/json",
@@ -791,10 +789,18 @@ export async function checkAdContentCensorship(
   return { ...data, checkedAt: Date.now() };
 }
 
+export interface BannerCopyText {
+  headline: string;
+  subheadline?: string;
+  cta: string;
+}
+
 export interface BannerSuggestion {
   backgroundPrompt: string;
   preset: BannerDesignPreset;
   explanation: string;
+  // Copy text generated by Claude. Will be rendered into the image by GPT Image 2.
+  copyText?: BannerCopyText;
 }
 
 export async function generateBannerSuggestions(
@@ -804,36 +810,65 @@ export async function generateBannerSuggestions(
   plan: PlanType = 'Free'
 ): Promise<BannerSuggestion[]> {
   const prompt = `
-    AMAS バナーデザイン・プランナー
-    業種: ${industry}
-    キャッチコピー: ${headline}
-    説明文: ${description}
-    
-    上記の内容に基づき、成約率の高いバナー広告の背景画像プロンプトと、テキスト配置プリセットを3案提案してください。
-    
-    デザイン・プリセットの種類:
-    - impact: 文字を中央に大きく配置。インパクト重視。
-    - catalog: 文字を右側に配置。左側に商品やサービス画像を配置するカタログ風。
-    - minimal: 文字を下部に控えめに配置。背景画像の美しさを活かす。
-    
-    背景画像プロンプトの指針:
-    - 文字を含まないこと（重要）。
-    - 具体的で高品質な描写。
-    - 業種とキャッチコピーの文脈に合致すること。
-    
-    回答は以下のJSON形式で厳密に出力してください:
-    {
-      "suggestions": [
-        { "backgroundPrompt": "プロンプト（英語）", "preset": "impact/catalog/minimal", "explanation": "この案の狙い（日本語）" },
-        ...
-      ]
-    }
-  `;
+AMAS バナーデザイン・プランナー（コンセプト + コピーテキスト生成）
+業種: ${industry}
+入力キャッチコピー: ${headline}
+入力説明文: ${description}
 
-  const ai = getGenAI();
-  const model = "gemini-3-flash-preview";
-  const response = await ai.models.generateContent({
-    model,
+上記の情報を基に、成約率の高いバナー広告のコンセプトを3案作成してください。
+各案は、画像生成AI（GPT Image 2）が「テキスト込みの完成バナー」を一発で描けるように、
+背景デザインと焼き込み用のコピーテキストの両方を含めてください。
+
+【各案に必要な要素】
+1. backgroundPrompt（英語）: 背景デザインの指示。
+   - 写実的な情景・スタイル・色調・構図を具体的に。
+   - ブランドセーフな表現（暴力・差別・誤認誘発なし）。
+   - テキストやロゴそのものへの言及は最小限（コピーテキストは別途指示するため）。
+2. preset: 'impact' | 'catalog' | 'minimal'
+   - impact: 文字を中央大きく配置。インパクト重視。
+   - catalog: 文字を右側、左に商品/サービスイメージ。
+   - minimal: 文字を下部控えめ。背景の美しさを活かす。
+3. copyText（日本語）: バナーに焼き込むテキスト。短く力強く。
+   - headline: 主見出し（最大15文字、最重要）
+   - subheadline: 補助コピー（最大25文字、省略可）
+   - cta: ボタン文言（最大10文字、例: 今すぐ予約 / 無料相談）
+4. explanation（日本語）: この案で刺さる理由の解説。
+
+【回答形式】
+以下のJSONのみを返してください。前置きやコードブロックは付けないこと。
+{
+  "suggestions": [
+    {
+      "backgroundPrompt": "...",
+      "preset": "impact|catalog|minimal",
+      "copyText": { "headline": "...", "subheadline": "...", "cta": "..." },
+      "explanation": "..."
+    }
+  ]
+}
+`;
+
+  // Primary: Claude generates concept + copy text (better Japanese copywriting).
+  try {
+    const result = await callClaude({
+      model: "claude-sonnet-4-5",
+      system: "あなたは熟練の広告クリエイティブディレクター兼コピーライターです。JSON形式のみで応答してください。",
+      messages: [{ role: 'user', content: prompt }],
+      temperature: 0.7,
+    });
+    const text = result?.content?.[0]?.text || "";
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    const parsed = JSON.parse(jsonMatch ? jsonMatch[0] : text);
+    if (Array.isArray(parsed.suggestions) && parsed.suggestions.length > 0) {
+      return parsed.suggestions as BannerSuggestion[];
+    }
+  } catch (error) {
+    console.warn("Claude banner suggestions failed, falling back to Gemini:", error);
+  }
+
+  // Fallback: Gemini (structured JSON via responseSchema).
+  const response = await callGemini({
+    model: "gemini-2.0-flash",
     contents: prompt,
     config: {
       responseMimeType: "application/json",
@@ -847,6 +882,15 @@ export async function generateBannerSuggestions(
               properties: {
                 backgroundPrompt: { type: Type.STRING },
                 preset: { type: Type.STRING, enum: ["impact", "catalog", "minimal"] },
+                copyText: {
+                  type: Type.OBJECT,
+                  properties: {
+                    headline: { type: Type.STRING },
+                    subheadline: { type: Type.STRING },
+                    cta: { type: Type.STRING }
+                  },
+                  required: ["headline", "cta"]
+                },
                 explanation: { type: Type.STRING }
               },
               required: ["backgroundPrompt", "preset", "explanation"]
@@ -862,37 +906,191 @@ export async function generateBannerSuggestions(
   return data.suggestions;
 }
 
+// Generate the final banner image (background + rendered copy text) via GPT Image 2.
+// `copyText` is optional for backward compatibility; if provided, the text is baked
+// into the image by gpt-image-1 instead of being overlaid on the client.
 export async function generateBannerImage(
   prompt: string,
   aspectRatio: BannerType,
-  plan: PlanType = 'Free'
+  copyText?: BannerCopyText,
+  preset: BannerDesignPreset | string = 'impact'
 ): Promise<string> {
-  const ai = getGenAI();
-  const model = "gemini-2.5-flash-image";
-  
-  const ratioMap: Record<BannerType, "1:1" | "16:9" | "9:16"> = {
-    [BannerType.Square]: "1:1",
-    [BannerType.Wide]: "16:9", // Approximate for 1.91:1
-    [BannerType.Vertical]: "9:16"
+  // Google / Meta standard banner sizes (the backend remaps to gpt-image-1 sizes).
+  const sizeMap: Record<BannerType, string> = {
+    [BannerType.Square]: "1080x1080",     // Instagram square
+    [BannerType.Wide]: "1200x628",        // OGP / landscape
+    [BannerType.Vertical]: "1080x1920",   // Stories / Reels
   };
 
-  const response = await ai.models.generateContent({
-    model,
-    contents: {
-      parts: [{ text: `High quality professional advertisement background, NO TEXT: ${prompt}` }]
-    },
-    config: {
-      imageConfig: {
-        aspectRatio: ratioMap[aspectRatio]
-      }
-    }
-  });
+  const presetGuide: Record<string, string> = {
+    impact:  "Place the main headline large and bold in the center. Maximum visual impact.",
+    catalog: "Place text on the right half; leave the left half for product / service imagery.",
+    minimal: "Place text small and refined at the bottom; let the background photography breathe.",
+  };
 
-  for (const part of response.candidates?.[0]?.content?.parts || []) {
-    if (part.inlineData) {
-      return `data:image/png;base64,${part.inlineData.data}`;
-    }
+  // Build a single prompt that asks gpt-image-1 to render the copy text directly
+  // onto the banner. We are explicit about which strings to render to reduce
+  // hallucinated typography.
+  let fullPrompt = `Professional, high-conversion advertisement banner. ${prompt}`;
+
+  if (copyText && (copyText.headline || copyText.cta)) {
+    const textLines: string[] = [];
+    if (copyText.headline)    textLines.push(`MAIN HEADLINE (largest, most prominent): "${copyText.headline}"`);
+    if (copyText.subheadline) textLines.push(`SUB HEADLINE (smaller, supporting): "${copyText.subheadline}"`);
+    if (copyText.cta)         textLines.push(`CTA BUTTON LABEL (inside a clearly visible button): "${copyText.cta}"`);
+
+    fullPrompt += `
+
+The banner MUST render the following Japanese text exactly as written, with clean modern typography, no misspellings, no extra text:
+${textLines.join("\n")}
+
+Layout intent: ${presetGuide[preset as string] || presetGuide.impact}
+Typography: legible Japanese sans-serif, high contrast against the background, properly kerned.
+Do not add any text beyond what is listed above.`;
+  } else {
+    fullPrompt += `\n\nNo text overlays in the image.`;
   }
 
-  throw new Error("画像の生成に失敗しました。");
+  const response = await fetch("/api/ai/image-generate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      prompt: fullPrompt,
+      size: sizeMap[aspectRatio],
+      style: "modern, premium, high-CVR advertising banner",
+    }),
+  });
+
+  if (!response.ok) {
+    let message = "画像の生成に失敗しました。";
+    try {
+      const err = await response.json();
+      message = err.error || message;
+    } catch {}
+    throw new Error(message);
+  }
+
+  const data = await response.json();
+  if (!data?.url) {
+    throw new Error("画像の生成に失敗しました。");
+  }
+  return data.url as string;
+}
+
+// ===============================================================
+// mureo Workflow Clients
+// Each function wraps a /api/workflow/* endpoint on the backend.
+// ===============================================================
+
+export interface DailyCheckMetrics {
+  impressions: number;
+  clicks: number;
+  leads: number;
+  spend: number;
+  budget: number;
+  cpa: number;
+  roas: number;
+  cvi: number;
+  campaignCount?: number;
+  activeCampaigns?: number;
+}
+
+export interface DailyCheckAnomaly {
+  platform: string;
+  metric: string;
+  severity: 'low' | 'medium' | 'high';
+  detail: string;
+}
+
+export interface DailyCheckRecommendation {
+  title: string;
+  detail: string;
+  expectedImpact: string;
+}
+
+export interface DailyCheckResult {
+  userId: string;
+  generatedAt: number;
+  totals: DailyCheckMetrics;
+  byPlatform: Record<string, DailyCheckMetrics>;
+  summary: string;
+  anomalies: DailyCheckAnomaly[];
+  recommendations: DailyCheckRecommendation[];
+  error?: string;
+}
+
+export interface BudgetRebalanceProposal {
+  fromCampaignId: string;
+  fromCampaignName: string;
+  toCampaignId: string;
+  toCampaignName: string;
+  amount: number;
+  reason: string;
+  expectedCVIDelta?: number;
+}
+
+export interface BudgetRebalanceResult {
+  userId: string;
+  generatedAt: number;
+  applied: boolean;
+  summary: string;
+  proposals: BudgetRebalanceProposal[];
+}
+
+export interface WeeklyReportResult {
+  userId: string;
+  generatedAt: number;
+  period: { from: number; to: number };
+  totals: {
+    impressions: number;
+    clicks: number;
+    leads: number;
+    spend: number;
+    budget: number;
+    campaignCount: number;
+  };
+  averages: { cpa: number; roas: number; cvi: number };
+  summary: string;
+}
+
+async function postWorkflow<T>(path: string, body: any): Promise<T> {
+  const response = await fetch(`/api/workflow/${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    let message = `Workflow request failed: ${path}`;
+    try {
+      const err = await response.json();
+      message = err.error || message;
+    } catch {}
+    throw new Error(message);
+  }
+  return response.json();
+}
+
+export async function runDailyCheck(userId: string): Promise<DailyCheckResult> {
+  return postWorkflow<DailyCheckResult>("daily-check", { userId });
+}
+
+export async function runBudgetRebalance(
+  userId: string,
+  campaigns: Campaign[]
+): Promise<BudgetRebalanceResult> {
+  return postWorkflow<BudgetRebalanceResult>("budget-rebalance", { userId, campaigns });
+}
+
+export async function runWeeklyReport(
+  userId: string,
+  campaigns: Campaign[]
+): Promise<WeeklyReportResult> {
+  return postWorkflow<WeeklyReportResult>("weekly-report", { userId, campaigns });
+}
+
+export async function saveInsight(
+  userId: string,
+  insight: string
+): Promise<{ success: boolean; id: string }> {
+  return postWorkflow<{ success: boolean; id: string }>("learn", { userId, insight });
 }

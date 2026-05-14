@@ -57,6 +57,54 @@ async function startServer() {
     if (event.type === 'checkout.session.completed') {
       const session = event.data.object as Stripe.Checkout.Session;
       const userId = session.metadata?.userId;
+
+      // Card-saving flow: Checkout Session in 'setup' mode.
+      // Fetch the resulting SetupIntent + PaymentMethod and persist a safe summary.
+      if (session.mode === 'setup' && userId) {
+        try {
+          const setupIntentId = typeof session.setup_intent === 'string'
+            ? session.setup_intent
+            : session.setup_intent?.id;
+
+          if (setupIntentId) {
+            const setupIntent = await stripe.setupIntents.retrieve(setupIntentId, {
+              expand: ['payment_method'],
+            });
+            const pm = setupIntent.payment_method as Stripe.PaymentMethod | null;
+
+            if (pm && pm.card) {
+              const newPaymentMethod = {
+                id: pm.id,
+                type: 'card',
+                last4: pm.card.last4,
+                brand: pm.card.brand,
+                expiryMonth: pm.card.exp_month,
+                expiryYear: pm.card.exp_year,
+                isDefault: true,
+                cardHolder: pm.billing_details?.name || '',
+                stripeCustomerId: typeof pm.customer === 'string' ? pm.customer : pm.customer?.id,
+              };
+
+              const walletRef = db.collection('wallets').doc(userId);
+              const walletDoc = await walletRef.get();
+              const walletData = walletDoc.data() || {};
+              const currentMethods = walletData.paymentMethods || [];
+              const updatedMethods = currentMethods
+                .filter((m: any) => m.id !== newPaymentMethod.id)
+                .map((m: any) => ({ ...m, isDefault: false }));
+              updatedMethods.push(newPaymentMethod);
+
+              await walletRef.set({ paymentMethods: updatedMethods }, { merge: true });
+              console.log(`PaymentMethod ${pm.id} saved for user ${userId}`);
+            }
+          }
+        } catch (err) {
+          console.error("Error persisting saved card from setup session:", err);
+        }
+
+        return res.json({ received: true });
+      }
+
       const amount = session.amount_total || 0; // JPY is zero-decimal
 
       if (userId) {
@@ -162,9 +210,17 @@ async function startServer() {
     }
   });
 
-  // Save Card Method
+  // Save Card Method (Stripe SetupIntent / Checkout Session in setup mode)
+  // The frontend MUST NOT send raw card data. This endpoint creates a Stripe-hosted
+  // Checkout Session in 'setup' mode and returns the URL. The user is redirected to
+  // Stripe to enter their card details; the saved PaymentMethod is persisted via the
+  // webhook below (checkout.session.completed with mode === 'setup').
   app.post("/api/payments/save-card", async (req, res) => {
-    const { userId, cardData } = req.body;
+    const { userId, successUrl, cancelUrl } = req.body;
+
+    if (!userId) {
+      return res.status(400).json({ error: "userId is required." });
+    }
 
     const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
     if (!stripeSecretKey) {
@@ -176,11 +232,15 @@ async function startServer() {
     });
 
     try {
-      // 1. Create or get Customer
-      let customerId;
+      // 1. Create or get Stripe Customer
+      let customerId: string | undefined;
       const userDoc = await db.collection('users').doc(userId).get();
       const userData = userDoc.data();
-      
+
+      if (!userDoc.exists) {
+        return res.status(404).json({ error: "User not found." });
+      }
+
       if (userData?.stripeCustomerId) {
         customerId = userData.stripeCustomerId;
       } else {
@@ -192,36 +252,117 @@ async function startServer() {
         await db.collection('users').doc(userId).update({ stripeCustomerId: customerId });
       }
 
-      // 2. Create a mock PaymentMethod record for the UI
-      // In a real production app, you would use Stripe Elements on the frontend
-      // to get a payment_method_id and then attach it here.
-      // For this implementation, we'll create a record in Firestore.
-      const newPaymentMethod = {
-        id: `pm_${Math.random().toString(36).substr(2, 9)}`,
-        type: 'card',
-        last4: cardData.number.slice(-4),
-        brand: cardData.number.startsWith('4') ? 'visa' : 'mastercard',
-        expiryMonth: parseInt(cardData.expiry.split('/')[0]),
-        expiryYear: 2000 + parseInt(cardData.expiry.split('/')[1]),
-        isDefault: true,
-        cardHolder: cardData.name
-      };
+      // 2. Create a Stripe Checkout Session in 'setup' mode (Intent-based flow)
+      const session = await stripe.checkout.sessions.create({
+        mode: 'setup',
+        payment_method_types: ['card'],
+        customer: customerId,
+        success_url: successUrl || `${process.env.APP_URL}/wallet?setup_success=true`,
+        cancel_url: cancelUrl || `${process.env.APP_URL}/wallet?setup_canceled=true`,
+        metadata: { userId },
+      });
 
-      // 3. Save to Firestore wallet
-      const walletRef = db.collection('wallets').doc(userId);
-      const walletDoc = await walletRef.get();
-      const walletData = walletDoc.data() || {};
-      const currentMethods = walletData.paymentMethods || [];
-      
-      // Update isDefault for other methods
-      const updatedMethods = currentMethods.map((m: any) => ({ ...m, isDefault: false }));
-      updatedMethods.push(newPaymentMethod);
-
-      await walletRef.update({ paymentMethods: updatedMethods });
-
-      res.json({ success: true, paymentMethod: newPaymentMethod });
+      res.json({ id: session.id, url: session.url });
     } catch (error: any) {
       console.error("Save Card Error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Gemini API Proxy
+  app.post("/api/ai/gemini", async (req, res) => {
+    const { model, contents, config } = req.body;
+
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      return res.status(500).json({ error: "GEMINI_API_KEY is not configured on the server." });
+    }
+
+    if (!model || !contents) {
+      return res.status(400).json({ error: "model and contents are required." });
+    }
+
+    try {
+      const ai = new GoogleGenAI({ apiKey });
+      const response = await ai.models.generateContent({ model, contents, config });
+
+      // Forward the text and candidates so callers can read structured/text/image data
+      res.json({
+        text: response.text,
+        candidates: response.candidates,
+      });
+    } catch (error: any) {
+      console.error("Gemini API Error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // OpenAI Image Generation Proxy (gpt-image-1)
+  // Used for ad banner generation. Supports Google/Meta standard banner sizes
+  // by mapping them to the closest gpt-image-1 supported aspect.
+  app.post("/api/ai/image-generate", async (req, res) => {
+    const { prompt, size, style, quality } = req.body || {};
+
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+      return res.status(500).json({ error: "OPENAI_API_KEY is not configured on the server." });
+    }
+    if (!prompt || typeof prompt !== "string") {
+      return res.status(400).json({ error: "prompt is required." });
+    }
+
+    // gpt-image-1 supports 1024x1024 / 1024x1536 / 1536x1024 / auto.
+    // Map the Google / Meta banner standards to the closest supported size.
+    const sizeMap: Record<string, "1024x1024" | "1024x1536" | "1536x1024"> = {
+      "1200x628": "1536x1024",   // OGP / landscape banner
+      "1080x1080": "1024x1024",  // Instagram square
+      "1080x1920": "1024x1536",  // Stories / Reels vertical
+      "1024x1024": "1024x1024",
+      "1024x1536": "1024x1536",
+      "1536x1024": "1536x1024",
+    };
+    const apiSize = sizeMap[size] || "1024x1024";
+    const fullPrompt = style ? `${prompt}\n\nStyle: ${style}` : prompt;
+
+    try {
+      const apiResponse = await fetch("https://api.openai.com/v1/images/generations", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "gpt-image-1",
+          prompt: fullPrompt,
+          size: apiSize,
+          n: 1,
+          quality: quality || "high",
+        }),
+      });
+
+      if (!apiResponse.ok) {
+        const errBody = await apiResponse.text();
+        console.error("[image-generate] OpenAI error:", apiResponse.status, errBody);
+        return res.status(apiResponse.status).json({
+          error: `OpenAI image generation failed (${apiResponse.status})`,
+          detail: errBody,
+        });
+      }
+
+      const data = await apiResponse.json();
+      const b64 = data?.data?.[0]?.b64_json;
+      if (!b64) {
+        return res.status(500).json({ error: "No image returned from OpenAI." });
+      }
+
+      res.json({
+        url: `data:image/png;base64,${b64}`,
+        b64_json: b64,
+        size: apiSize,
+        requestedSize: size || null,
+      });
+    } catch (error: any) {
+      console.error("[image-generate] error:", error);
       res.status(500).json({ error: error.message });
     }
   });
@@ -239,7 +380,7 @@ async function startServer() {
 
     try {
       const response = await anthropic.messages.create({
-        model: model || "claude-3-5-sonnet-20241022",
+        model: model || "claude-sonnet-4-5",
         max_tokens: 4096,
         system: system,
         messages: messages,
@@ -249,6 +390,395 @@ async function startServer() {
       res.json(response);
     } catch (error: any) {
       console.error("Claude API Error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ===============================================================
+  // mureo Workflow Endpoints
+  // ===============================================================
+
+  // Shared helper: call Claude on the server and return plain text.
+  async function callClaudeText(opts: {
+    system: string;
+    user: string;
+    model?: string;
+    temperature?: number;
+    maxTokens?: number;
+  }): Promise<string> {
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) {
+      throw new Error("ANTHROPIC_API_KEY is not configured on the server.");
+    }
+    const anthropic = new Anthropic({ apiKey });
+    const response = await anthropic.messages.create({
+      model: opts.model || "claude-sonnet-4-5",
+      max_tokens: opts.maxTokens || 2048,
+      system: opts.system,
+      messages: [{ role: "user", content: opts.user }],
+      temperature: opts.temperature ?? 0.4,
+    });
+    return response.content
+      .map((block: any) => (block.type === "text" ? block.text : ""))
+      .join("\n")
+      .trim();
+  }
+
+  function parseJsonLoose<T = any>(text: string, fallback: T): T {
+    if (!text) return fallback;
+    const match = text.match(/\{[\s\S]*\}|\[[\s\S]*\]/);
+    try {
+      return JSON.parse(match ? match[0] : text) as T;
+    } catch {
+      return fallback;
+    }
+  }
+
+  // Group a campaign into the high-level media bucket used by daily-check.
+  function mediaBucket(platforms: string[] | undefined): "google" | "meta" | "other" {
+    if (!platforms || platforms.length === 0) return "other";
+    const isGoogle = platforms.some((p) =>
+      ["GoogleSearch", "GoogleDisplay", "TrueView", "YahooSearch", "YahooDisplay"].includes(p)
+    );
+    const isMeta = platforms.some((p) => ["Instagram", "Facebook"].includes(p));
+    if (isGoogle && !isMeta) return "google";
+    if (isMeta && !isGoogle) return "meta";
+    if (isGoogle && isMeta) return "google"; // mixed → bias toward primary
+    return "other";
+  }
+
+  // 1) POST /api/workflow/daily-check
+  // Aggregate active Google/Meta campaign metrics, ask Claude for anomaly detection.
+  app.post("/api/workflow/daily-check", async (req, res) => {
+    const { userId } = req.body || {};
+    if (!userId) return res.status(400).json({ error: "userId is required." });
+
+    try {
+      const snap = await db
+        .collection("campaigns")
+        .where("ownerUid", "==", userId)
+        .get();
+
+      const platformAgg: Record<string, {
+        impressions: number;
+        clicks: number;
+        leads: number;
+        spend: number;
+        budget: number;
+        roasSum: number;
+        cpaSum: number;
+        cviSum: number;
+        count: number;
+      }> = {};
+
+      let totalImpressions = 0;
+      let totalClicks = 0;
+      let totalLeads = 0;
+      let totalSpend = 0;
+      let totalBudget = 0;
+      let cviSumAll = 0;
+      let roasSumAll = 0;
+      let cpaSumAll = 0;
+      let activeCount = 0;
+
+      snap.forEach((doc) => {
+        const c = doc.data() as any;
+        if (c.status !== "active") return;
+        const bucket = mediaBucket(c.platforms);
+        if (bucket === "other") return;
+
+        const agg = platformAgg[bucket] || {
+          impressions: 0, clicks: 0, leads: 0, spend: 0, budget: 0,
+          roasSum: 0, cpaSum: 0, cviSum: 0, count: 0,
+        };
+        agg.impressions += c.impressions || 0;
+        agg.clicks += c.clicks || 0;
+        agg.leads += c.leads || 0;
+        agg.spend += c.spend || 0;
+        agg.budget += c.budget || 0;
+        agg.roasSum += c.roas || 0;
+        agg.cpaSum += c.cpa || 0;
+        agg.cviSum += c.cvi || 0;
+        agg.count += 1;
+        platformAgg[bucket] = agg;
+
+        totalImpressions += c.impressions || 0;
+        totalClicks += c.clicks || 0;
+        totalLeads += c.leads || 0;
+        totalSpend += c.spend || 0;
+        totalBudget += c.budget || 0;
+        roasSumAll += c.roas || 0;
+        cpaSumAll += c.cpa || 0;
+        cviSumAll += c.cvi || 0;
+        activeCount += 1;
+      });
+
+      const byPlatform = Object.fromEntries(
+        Object.entries(platformAgg).map(([k, v]) => [
+          k,
+          {
+            impressions: v.impressions,
+            clicks: v.clicks,
+            leads: v.leads,
+            spend: v.spend,
+            budget: v.budget,
+            cpa: v.count ? Math.round(v.cpaSum / v.count) : 0,
+            roas: v.count ? +(v.roasSum / v.count).toFixed(2) : 0,
+            cvi: v.count ? +(v.cviSum / v.count).toFixed(2) : 0,
+            campaignCount: v.count,
+          },
+        ])
+      );
+
+      const totals = {
+        impressions: totalImpressions,
+        clicks: totalClicks,
+        leads: totalLeads,
+        spend: totalSpend,
+        budget: totalBudget,
+        cpa: activeCount ? Math.round(cpaSumAll / activeCount) : 0,
+        roas: activeCount ? +(roasSumAll / activeCount).toFixed(2) : 0,
+        cvi: activeCount ? +(cviSumAll / activeCount).toFixed(2) : 0,
+        activeCampaigns: activeCount,
+      };
+
+      // Ask Claude for anomaly detection + recommendations.
+      let aiReport: any = null;
+      try {
+        const prompt = `以下はAMASユーザーの本日時点の媒体別パフォーマンスです。
+異常な数値（CPA急騰、ROAS低下、CVI低下、リードゼロ等）を検知し、
+3件以内の具体的な改善提案を日本語で出してください。
+
+【全体】
+${JSON.stringify(totals)}
+
+【媒体別】
+${JSON.stringify(byPlatform)}
+
+回答は以下のJSONのみで返してください（前置きや説明は付けないこと）:
+{
+  "summary": "本日の総評（日本語1-2文）",
+  "anomalies": [
+    { "platform": "google|meta", "metric": "指標名", "severity": "low|medium|high", "detail": "日本語の説明" }
+  ],
+  "recommendations": [
+    { "title": "施策名", "detail": "実行内容（日本語）", "expectedImpact": "期待効果（日本語）" }
+  ]
+}`;
+        const text = await callClaudeText({
+          system: "あなたはAMASのパフォーマンス監査AIです。事実に基づき簡潔に回答してください。JSON形式のみで応答してください。",
+          user: prompt,
+        });
+        aiReport = parseJsonLoose(text, {
+          summary: text || "",
+          anomalies: [],
+          recommendations: [],
+        });
+      } catch (err: any) {
+        console.error("[daily-check] Claude error:", err);
+        aiReport = {
+          summary: "AIによる異常検知に失敗しました。",
+          anomalies: [],
+          recommendations: [],
+          error: err.message,
+        };
+      }
+
+      res.json({
+        userId,
+        generatedAt: Date.now(),
+        totals,
+        byPlatform,
+        ...aiReport,
+      });
+    } catch (error: any) {
+      console.error("[daily-check] error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // 2) POST /api/workflow/budget-rebalance
+  // Proposes shifting budget from low-CVI campaigns to high-CVI ones (proposal only).
+  app.post("/api/workflow/budget-rebalance", async (req, res) => {
+    const { userId, campaigns } = req.body || {};
+    if (!userId) return res.status(400).json({ error: "userId is required." });
+    if (!Array.isArray(campaigns)) {
+      return res.status(400).json({ error: "campaigns must be an array." });
+    }
+
+    try {
+      // Lightweight summary the LLM can reason over without truncation risk.
+      const summarized = campaigns.map((c: any) => ({
+        id: c.id,
+        name: c.name,
+        platforms: c.platforms,
+        status: c.status,
+        budget: c.budget || 0,
+        spend: c.spend || 0,
+        leads: c.leads || 0,
+        cpa: c.cpa || 0,
+        roas: c.roas || 0,
+        cvi: c.cvi || 0,
+      }));
+
+      const prompt = `以下はユーザーの保有キャンペーン一覧です。
+CVIが低い（=資本効率が悪い）キャンペーンから、CVIが高いキャンペーンへ
+予算を再配分する「提案」を作成してください。実際の更新は行いません。
+
+【キャンペーン一覧】
+${JSON.stringify(summarized)}
+
+【ルール】
+- 元キャンペーンの予算より大きい額の移動は提案しない。
+- 同一キャンペーン内の移動は提案しない。
+- 月予算合計は変えない（=ゼロサム再配分）。
+- 提案件数は最大5件まで。
+
+回答は以下のJSONのみで返してください（前置きや説明は付けないこと）:
+{
+  "summary": "全体の方針（日本語1-2文）",
+  "proposals": [
+    {
+      "fromCampaignId": "...", "fromCampaignName": "...",
+      "toCampaignId": "...", "toCampaignName": "...",
+      "amount": 移動額（円, 整数）,
+      "reason": "日本語の根拠",
+      "expectedCVIDelta": 数値(例: +1.2)
+    }
+  ]
+}`;
+
+      const text = await callClaudeText({
+        system: "あなたはAMASの広告予算オプティマイザです。提案のみを返し、実行はしません。JSON形式のみで応答してください。",
+        user: prompt,
+      });
+
+      const data = parseJsonLoose(text, { summary: text || "", proposals: [] });
+
+      res.json({
+        userId,
+        generatedAt: Date.now(),
+        applied: false,
+        ...data,
+      });
+    } catch (error: any) {
+      console.error("[budget-rebalance] error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // 3) POST /api/workflow/weekly-report
+  // Aggregates campaign data over the last 7 days and asks Claude for a summary.
+  app.post("/api/workflow/weekly-report", async (req, res) => {
+    const { userId, campaigns } = req.body || {};
+    if (!userId) return res.status(400).json({ error: "userId is required." });
+    if (!Array.isArray(campaigns)) {
+      return res.status(400).json({ error: "campaigns must be an array." });
+    }
+
+    const now = Date.now();
+    const sevenDaysAgo = now - 7 * 24 * 60 * 60 * 1000;
+
+    try {
+      // Filter to campaigns created or active within the 7-day window. The schema
+      // doesn't store daily snapshots, so we use current aggregates as the proxy.
+      const recent = campaigns.filter((c: any) => {
+        const created = typeof c.createdAt === "number" ? c.createdAt : 0;
+        return created >= sevenDaysAgo || c.status === "active";
+      });
+
+      const totals = recent.reduce(
+        (acc: any, c: any) => {
+          acc.impressions += c.impressions || 0;
+          acc.clicks += c.clicks || 0;
+          acc.leads += c.leads || 0;
+          acc.spend += c.spend || 0;
+          acc.budget += c.budget || 0;
+          acc.roasSum += c.roas || 0;
+          acc.cpaSum += c.cpa || 0;
+          acc.cviSum += c.cvi || 0;
+          acc.count += 1;
+          return acc;
+        },
+        { impressions: 0, clicks: 0, leads: 0, spend: 0, budget: 0, roasSum: 0, cpaSum: 0, cviSum: 0, count: 0 }
+      );
+
+      const avg = {
+        cpa: totals.count ? Math.round(totals.cpaSum / totals.count) : 0,
+        roas: totals.count ? +(totals.roasSum / totals.count).toFixed(2) : 0,
+        cvi: totals.count ? +(totals.cviSum / totals.count).toFixed(2) : 0,
+      };
+
+      const prompt = `AMASユーザーの過去7日間の運用サマリーを、経営者向けに日本語で執筆してください。
+語調は「です・ます」、4〜6文程度、専門用語は控えめに。
+最後に「今週のハイライト」「来週の重点アクション」を箇条書きで添えてください。
+
+【期間】
+${new Date(sevenDaysAgo).toISOString().slice(0, 10)} 〜 ${new Date(now).toISOString().slice(0, 10)}
+
+【合計】
+インプレッション: ${totals.impressions} / クリック: ${totals.clicks} / リード: ${totals.leads}
+広告費: ¥${totals.spend} / 予算上限: ¥${totals.budget}
+
+【平均指標】
+CPA: ¥${avg.cpa} / ROAS: ${avg.roas} / CVI: ${avg.cvi}
+
+【参考: 対象キャンペーン数】
+${totals.count}件`;
+
+      const summary = await callClaudeText({
+        system: "あなたはAMASの広告運用レポートライターです。事実に基づき、誇張せず簡潔に書いてください。",
+        user: prompt,
+        temperature: 0.6,
+      });
+
+      res.json({
+        userId,
+        generatedAt: now,
+        period: { from: sevenDaysAgo, to: now },
+        totals: {
+          impressions: totals.impressions,
+          clicks: totals.clicks,
+          leads: totals.leads,
+          spend: totals.spend,
+          budget: totals.budget,
+          campaignCount: totals.count,
+        },
+        averages: avg,
+        summary,
+      });
+    } catch (error: any) {
+      console.error("[weekly-report] error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // 4) POST /api/workflow/learn
+  // Saves an insight string to organizations/{userId}/knowledge.
+  app.post("/api/workflow/learn", async (req, res) => {
+    const { userId, insight } = req.body || {};
+    if (!userId) return res.status(400).json({ error: "userId is required." });
+    if (typeof insight !== "string" || insight.trim().length === 0) {
+      return res.status(400).json({ error: "insight is required and must be a non-empty string." });
+    }
+    if (insight.length > 10000) {
+      return res.status(400).json({ error: "insight is too long (max 10000 chars)." });
+    }
+
+    try {
+      const docRef = await db
+        .collection("organizations")
+        .doc(userId)
+        .collection("knowledge")
+        .add({
+          insight: insight.trim(),
+          createdAt: Date.now(),
+          source: "workflow.learn",
+        });
+
+      res.json({ success: true, id: docRef.id });
+    } catch (error: any) {
+      console.error("[workflow/learn] error:", error);
       res.status(500).json({ error: error.message });
     }
   });
@@ -442,7 +972,7 @@ async function startServer() {
 
       const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
       const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
+        model: "gemini-2.0-flash",
         contents: prompt,
         config: {
           responseMimeType: "application/json"
