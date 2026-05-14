@@ -28,7 +28,7 @@ const db = admin.firestore();
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = process.env.PORT || 3000;
 
   // Stripe Webhook needs raw body
   app.post("/api/payments/webhook", express.raw({ type: 'application/json' }), async (req, res) => {
