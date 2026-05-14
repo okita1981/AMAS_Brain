@@ -30,6 +30,12 @@ async function startServer() {
   const app = express();
   const PORT = process.env.PORT || 3000;
 
+  // Startup diagnostics: report which AI provider keys are visible to the
+  // running process. Never logs the key itself — only "設定済み" / "未設定".
+  console.log('[startup] OPENAI_API_KEY:', process.env.OPENAI_API_KEY ? '設定済み' : '未設定');
+  console.log('[startup] ANTHROPIC_API_KEY:', process.env.ANTHROPIC_API_KEY ? '設定済み' : '未設定');
+  console.log('[startup] GEMINI_API_KEY:', process.env.GEMINI_API_KEY ? '設定済み' : '未設定');
+
   // Stripe Webhook needs raw body
   app.post("/api/payments/webhook", express.raw({ type: 'application/json' }), async (req, res) => {
     const sig = req.headers['stripe-signature'] as string;
@@ -1184,7 +1190,7 @@ ${totals.count}件`;
     try {
       const ai = new GoogleGenAI({ apiKey: rawKey });
       const response = await ai.models.generateContent({
-        model: "gemini-1.5-flash",
+        model: "gemini-2.5-flash-preview-05-20",
         contents: prompt,
         config: { responseMimeType: "application/json" },
       });
