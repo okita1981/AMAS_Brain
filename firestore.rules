@@ -1,0 +1,266 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Document ID: {userId} (Firebase Auth UID)
+    // Fields:
+    //   - uid: string (required)
+    //   - email: string (required, email format)
+    //   - displayName: string (optional)
+    //   - photoURL: string (optional)
+    //   - plan: string (required, enum: Free, Lite, Standard, Pro)
+    //   - role: string (required, enum: admin, editor, viewer)
+    //   - createdAt: number (required)
+    //
+    // Collection: campaigns
+    // Document ID: {campaignId}
+    // Fields:
+    //   - id: string (required)
+    //   - name: string (required)
+    //   - ownerUid: string (required)
+    //   ... (metrics fields)
+    //
+    // Collection: wallets
+    // Document ID: {userId}
+    // Fields:
+    //   - balance_total: number (required)
+    //   - balance_ad_budget: number (required)
+    //   - tax_holding: number (required)
+    //   - status: string (required, enum: active, paused, inactive)
+    //   - autoChargeEnabled: boolean (required)
+    //   - autoChargeThreshold: number (required)
+    //   - autoChargeAmount: number (required)
+    //   - lastResetAt: number (required)
+    //
+    // Collection: transactions
+    // Document ID: {transactionId}
+    // Fields:
+    //   - id: string (required)
+    //   - userUid: string (required)
+    //   - amount: number (required)
+    //   - type: string (required, enum: credit_card, bank_transfer, charge, spend)
+    //   - status: string (required, enum: pending, completed, failed)
+    //   - timestamp: number (required)
+    //
+    // ===============================================================
+
+    // Helper Functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isDocOwner() {
+      return isAuthenticated() && request.auth.uid == resource.data.ownerUid;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        (
+          (request.auth.token.email == "kousuke.okita@gmail.com") ||
+          (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin')
+        );
+    }
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'email', 'plan', 'role', 'createdAt', 'billingCycle']) &&
+             data.uid is string &&
+             data.email is string && data.email.size() < 256 &&
+             data.plan in ['Free', 'Lite', 'Standard', 'Pro', 'Agency'] &&
+             data.role in ['admin', 'user', 'agent'] &&
+             data.billingCycle in ['monthly', 'yearly'] &&
+             data.createdAt is number;
+    }
+
+    function isValidCampaign(data) {
+      return data.keys().hasAll(['id', 'name', 'ownerUid']) &&
+             data.id is string && data.name is string &&
+             data.ownerUid is string;
+    }
+
+    function isValidReport(data) {
+      return data.keys().hasAll(['id', 'type', 'title', 'ownerUid']) &&
+             data.ownerUid is string;
+    }
+
+    function isValidAnnouncement(data) {
+      return data.keys().hasAll(['id', 'title', 'content', 'type', 'createdAt', 'authorId', 'authorEmail']) &&
+             data.id is string && data.title is string && data.title.size() < 200 &&
+             data.content is string && data.content.size() < 5000 &&
+             data.type in ['info', 'warning', 'success', 'campaign'] &&
+             data.authorId == request.auth.uid;
+    }
+
+    function isValidTransaction(data) {
+      return data.keys().hasAll(['id', 'userUid', 'amount', 'type', 'status', 'timestamp']) &&
+             data.userUid is string &&
+             data.amount is number &&
+             data.type in ['credit_card', 'bank_transfer', 'charge', 'spend'] &&
+             data.status in ['pending', 'completed', 'failed'];
+    }
+
+    function isValidWallet(data) {
+      return data.keys().hasAll(['balance_total', 'balance_ad_budget', 'tax_holding', 'status', 'autoChargeEnabled', 'autoChargeThreshold', 'autoChargeAmount', 'monthlyUsage', 'transactions']) &&
+             data.balance_total is number &&
+             data.balance_ad_budget is number &&
+             data.tax_holding is number &&
+             data.status in ['active', 'paused', 'inactive'] &&
+             data.autoChargeEnabled is bool &&
+             data.autoChargeThreshold is number &&
+             data.autoChargeAmount is number &&
+             data.transactions is list &&
+             data.monthlyUsage is map;
+    }
+
+    function isValidClient(data) {
+      return data.keys().hasAll(['id', 'name', 'industry', 'createdAt', 'ownerUid']) &&
+             data.id is string && data.name is string && data.industry is string &&
+             data.ownerUid is string;
+    }
+
+    function isValidSite(data) {
+      return data.keys().hasAll(['id', 'clientId', 'name', 'url', 'createdAt', 'ownerUid']) &&
+             data.id is string && data.clientId is string && data.name is string && data.url is string &&
+             data.ownerUid is string;
+    }
+
+    function isValidNotification(data) {
+      return data.keys().hasAll(['title', 'message', 'type', 'timestamp', 'read']) &&
+             data.title is string && data.message is string &&
+             data.type in ['success', 'info', 'warning', 'error'] &&
+             data.timestamp is number && data.read is bool;
+    }
+
+    function isValidAISummary(data) {
+      return data.keys().hasAll(['id', 'campaignId', 'month', 'content']) &&
+             data.id is string && data.campaignId is string &&
+             data.month is string && data.month.matches("^\\d{4}-\\d{2}$") &&
+             data.content is string && data.content.size() < 10000;
+    }
+
+    function isValidSatellitePage(data) {
+      return data.keys().hasAll(['ownerUid', 'title', 'slug', 'htmlContent', 'cssContent', 'status', 'createdAt', 'updatedAt', 'metrics']) &&
+             data.ownerUid is string &&
+             data.title is string && data.title.size() < 500 &&
+             data.slug is string && data.slug.size() < 200 &&
+             data.htmlContent is string && data.htmlContent.size() < 200000 &&
+             data.cssContent is string && data.cssContent.size() < 100000 &&
+             data.status in ['draft', 'published', 'archived'] &&
+             data.createdAt is number &&
+             data.updatedAt is number &&
+             data.metrics is map &&
+             data.metrics.keys().hasAll(['views', 'clicks', 'conversions', 'cvi']) &&
+             data.metrics.views is number &&
+             data.metrics.clicks is number &&
+             data.metrics.conversions is number &&
+             data.metrics.cvi is number &&
+             (!('targetKeywords' in data) || data.targetKeywords is list) &&
+             (!('mainSiteUrl' in data) || data.mainSiteUrl is string);
+    }
+
+    // Rules
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow list: if isAdmin();
+      allow create: if isOwner(userId) && isValidUser(request.resource.data);
+      allow update: if (isOwner(userId) && isValidUser(request.resource.data) && 
+                       request.resource.data.role == resource.data.role &&
+                       request.resource.data.uid == resource.data.uid) || isAdmin();
+      
+      match /notifications/{notifId} {
+        allow read: if isOwner(userId) || isAdmin();
+        allow create: if (isOwner(userId) || isAdmin()) && isValidNotification(request.resource.data);
+        allow update: if isOwner(userId) || isAdmin();
+        allow delete: if isOwner(userId) || isAdmin();
+      }
+    }
+
+    match /clients/{clientId} {
+      allow read: if isAdmin() || (isAuthenticated() && (resource.data.ownerUid == request.auth.uid || request.auth.uid in get(/databases/$(database)/documents/users/$(request.auth.uid)).data.accessibleClientIds));
+      allow create: if isAuthenticated() && isValidClient(request.resource.data) && (request.resource.data.ownerUid == request.auth.uid || isAdmin());
+      allow update: if (isAdmin() || (isAuthenticated() && resource.data.ownerUid == request.auth.uid)) && isValidClient(request.resource.data) && (isAdmin() || request.resource.data.ownerUid == resource.data.ownerUid);
+      allow delete: if isAdmin() || (isAuthenticated() && resource.data.ownerUid == request.auth.uid);
+    }
+
+    match /sites/{siteId} {
+      allow read: if isAdmin() || (isAuthenticated() && resource.data.ownerUid == request.auth.uid);
+      allow create: if isAuthenticated() && isValidSite(request.resource.data) && (request.resource.data.ownerUid == request.auth.uid || isAdmin());
+      allow update: if (isAdmin() || (isAuthenticated() && resource.data.ownerUid == request.auth.uid)) && isValidSite(request.resource.data) && (isAdmin() || request.resource.data.ownerUid == resource.data.ownerUid);
+      allow delete: if isAdmin() || (isAuthenticated() && resource.data.ownerUid == request.auth.uid);
+    }
+
+    match /campaigns/{campaignId} {
+      allow read: if isAdmin() || (isAuthenticated() && resource.data.ownerUid == request.auth.uid);
+      allow create: if isAuthenticated() && isValidCampaign(request.resource.data) && (request.resource.data.ownerUid == request.auth.uid || isAdmin());
+      allow update: if (isAdmin() || (isAuthenticated() && resource.data.ownerUid == request.auth.uid)) && isValidCampaign(request.resource.data) && (isAdmin() || request.resource.data.ownerUid == resource.data.ownerUid);
+      allow delete: if isAdmin() || (isAuthenticated() && resource.data.ownerUid == request.auth.uid);
+    }
+    
+    match /reports/{reportId} {
+      allow read: if isAdmin() || (isAuthenticated() && resource.data.ownerUid == request.auth.uid);
+      allow create: if isAuthenticated() && isValidReport(request.resource.data) && (request.resource.data.ownerUid == request.auth.uid || isAdmin());
+      allow delete: if isAdmin() || (isAuthenticated() && resource.data.ownerUid == request.auth.uid);
+    }
+
+    match /organizations/{orgId} {
+      allow read: if isOwner(orgId) || isAdmin();
+      
+      match /settings/{settingId} {
+        allow read: if isOwner(orgId) || isAdmin();
+        allow write: if isOwner(orgId) || isAdmin();
+      }
+      
+      match /members/{memberId} {
+        allow read: if isOwner(orgId) || isAdmin();
+        allow write: if isOwner(orgId) || isAdmin();
+      }
+    }
+
+    match /audit_logs/{logId} {
+      allow read: if isAdmin();
+      allow create: if isAdmin();
+    }
+
+    match /transactions/{transactionId} {
+      allow read: if isAdmin() || (isAuthenticated() && resource.data.userUid == request.auth.uid);
+      allow create: if isAuthenticated() && isValidTransaction(request.resource.data) && (request.resource.data.userUid == request.auth.uid || isAdmin());
+      allow update: if isAdmin();
+    }
+
+    match /wallets/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow create: if isOwner(userId) && isValidWallet(request.resource.data);
+      allow update: if (isOwner(userId) && (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['monthlyUsage']) || isValidWallet(request.resource.data))) || isAdmin();
+    }
+
+    match /announcements/{announcementId} {
+      allow read: if isAuthenticated();
+      allow create: if isAdmin() && isValidAnnouncement(request.resource.data);
+      allow update: if isAdmin() && isValidAnnouncement(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    match /ai_summaries/{summaryId} {
+      allow read: if isAuthenticated(); // Allow all authenticated users to read summaries for now, or we could restrict by campaign ownership
+      allow create: if isAdmin() && isValidAISummary(request.resource.data);
+      allow update: if isAdmin() && isValidAISummary(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    match /satellite_pages/{pageId} {
+      allow read: if resource.data.status == 'published' || isAdmin() || (isAuthenticated() && resource.data.ownerUid == request.auth.uid);
+      allow list: if isAdmin() || (isAuthenticated() && (request.query.limit <= 100)) || (request.query.status == 'published'); 
+      allow create: if isAuthenticated() && isValidSatellitePage(request.resource.data) && (request.resource.data.ownerUid == request.auth.uid || isAdmin());
+      allow update: if (isAdmin() || (isAuthenticated() && resource.data.ownerUid == request.auth.uid) || (resource.data.status == 'published' && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['metrics']))) && isValidSatellitePage(request.resource.data) && (isAdmin() || request.resource.data.ownerUid == resource.data.ownerUid);
+      allow delete: if isAdmin() || (isAuthenticated() && resource.data.ownerUid == request.auth.uid);
+    }
+  }
+}

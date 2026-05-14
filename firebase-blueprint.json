@@ -1,0 +1,290 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Application user profile",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "Firebase Auth UID" },
+        "email": { "type": "string", "format": "email" },
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "plan": { "type": "string", "enum": ["Free", "Lite", "Standard", "Pro", "Agency"] },
+        "role": { "type": "string", "enum": ["admin", "editor", "viewer"] },
+        "createdAt": { "type": "number" },
+        "google_ad_account_id": { "type": "string" },
+        "meta_ad_account_id": { "type": "string" },
+        "companyName": { "type": "string", "description": "Legal company name for invoices" },
+        "taxRegistrationNumber": { "type": "string", "description": "Japanese Tax Registration Number (T-number)" },
+        "wallet": { "$ref": "WalletState" }
+      },
+      "required": ["uid", "email", "plan", "role"]
+    },
+    "WalletState": {
+      "title": "WalletState",
+      "description": "User wallet and usage metrics",
+      "type": "object",
+      "properties": {
+        "balance_total": { "type": "number" },
+        "balance_ad_budget": { "type": "number" },
+        "tax_holding": { "type": "number" },
+        "status": { "type": "string", "enum": ["active", "paused"] },
+        "autoChargeEnabled": { "type": "boolean" },
+        "autoChargeThreshold": { "type": "number" },
+        "autoChargeAmount": { "type": "number" },
+        "monthlyUsage": { "$ref": "UsageMetrics" }
+      }
+    },
+    "UsageMetrics": {
+      "title": "UsageMetrics",
+      "description": "Monthly usage tracking for plan limits",
+      "type": "object",
+      "properties": {
+        "monthlyDeposit": { "type": "number" },
+        "monthlyCreatives": { "type": "number" },
+        "monthlyCampaigns": { "type": "number" },
+        "lastResetAt": { "type": "number" }
+      }
+    },
+    "Campaign": {
+      "title": "Campaign",
+      "description": "Marketing campaign data",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "industry": { "type": "string" },
+        "budget": { "type": "number" },
+        "spend": { "type": "number" },
+        "impressions": { "type": "number" },
+        "clicks": { "type": "number" },
+        "leads": { "type": "number" },
+        "cpa": { "type": "number" },
+        "cpc": { "type": "number" },
+        "cvr": { "type": "number" },
+        "roas": { "type": "number" },
+        "cvi": { "type": "number" },
+        "status": { "type": "string", "enum": ["active", "paused", "completed"] },
+        "ownerUid": { "type": "string" }
+      },
+      "required": ["id", "name", "ownerUid"]
+    },
+    "TeamMember": {
+      "title": "TeamMember",
+      "description": "Team member association",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "role": { "type": "string", "enum": ["admin", "editor", "viewer"] },
+        "joinedAt": { "type": "number" },
+        "organizationId": { "type": "string" }
+      },
+      "required": ["id", "email", "role"]
+    },
+    "AIActionReport": {
+      "title": "AIActionReport",
+      "description": "Log of autonomous AI actions",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "campaignId": { "type": "string" },
+        "type": { "type": "string", "enum": ["budget_shift", "ad_stop", "bid_adjust", "creative_update"] },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "impact": { "type": "string" },
+        "timestamp": { "type": "number" },
+        "ownerUid": { "type": "string" }
+      },
+      "required": ["id", "type", "title", "ownerUid"]
+    },
+    "AuditLog": {
+      "title": "AuditLog",
+      "description": "Log of administrative actions",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "adminUid": { "type": "string" },
+        "adminEmail": { "type": "string" },
+        "targetUid": { "type": "string" },
+        "action": { "type": "string" },
+        "details": { "type": "string" },
+        "timestamp": { "type": "number" }
+      },
+      "required": ["id", "adminUid", "action", "timestamp"]
+    },
+    "Transaction": {
+      "title": "Transaction",
+      "description": "Financial transaction for wallet",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userUid": { "type": "string" },
+        "amount": { "type": "number" },
+        "type": { "type": "string", "enum": ["credit_card", "bank_transfer"] },
+        "status": { "type": "string", "enum": ["pending", "completed", "failed"] },
+        "timestamp": { "type": "number" },
+        "approvedAt": { "type": "number" },
+        "approvedBy": { "type": "string" }
+      },
+      "required": ["id", "userUid", "amount", "type", "status", "timestamp"]
+    },
+    "Announcement": {
+      "title": "Announcement",
+      "description": "System-wide announcement from administrator",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "content": { "type": "string" },
+        "type": { "type": "string", "enum": ["info", "warning", "success", "campaign"] },
+        "createdAt": { "type": "number" },
+        "authorId": { "type": "string" },
+        "authorEmail": { "type": "string" }
+      },
+      "required": ["id", "title", "content", "type", "createdAt", "authorId", "authorEmail"]
+    },
+    "SatellitePage": {
+      "title": "SatellitePage",
+      "description": "AI-generated SEO satellite page",
+      "type": "object",
+      "properties": {
+        "ownerUid": { "type": "string" },
+        "campaignId": { "type": "string" },
+        "title": { "type": "string" },
+        "slug": { "type": "string" },
+        "targetKeywords": { "type": "array", "items": { "type": "string" } },
+        "mainSiteUrl": { "type": "string" },
+        "htmlContent": { "type": "string" },
+        "cssContent": { "type": "string" },
+        "status": { "type": "string", "enum": ["draft", "published", "archived"] },
+        "metrics": {
+          "type": "object",
+          "properties": {
+            "views": { "type": "number" },
+            "clicks": { "type": "number" },
+            "conversions": { "type": "number" },
+            "cvi": { "type": "number" }
+          }
+        },
+        "createdAt": { "type": "number" },
+        "updatedAt": { "type": "number" }
+      },
+      "required": ["ownerUid", "title", "slug", "htmlContent", "cssContent", "status", "createdAt", "updatedAt", "metrics"]
+    },
+    "Client": {
+      "title": "Client",
+      "description": "Multi-tenant client organization",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "industry": { "type": "string" },
+        "createdAt": { "type": "number" },
+        "ownerUid": { "type": "string" }
+      },
+      "required": ["id", "name", "industry", "createdAt", "ownerUid"]
+    },
+    "Site": {
+      "title": "Site",
+      "description": "Managed website for a client",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "clientId": { "type": "string" },
+        "name": { "type": "string" },
+        "url": { "type": "string" },
+        "createdAt": { "type": "number" },
+        "ownerUid": { "type": "string" }
+      },
+      "required": ["id", "clientId", "name", "url", "createdAt", "ownerUid"]
+    },
+    "AppNotification": {
+      "title": "AppNotification",
+      "description": "In-app notification for a user",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "message": { "type": "string" },
+        "type": { "type": "string", "enum": ["success", "info", "warning", "error"] },
+        "timestamp": { "type": "number" },
+        "read": { "type": "boolean" },
+        "campaignId": { "type": "string" }
+      },
+      "required": ["id", "title", "message", "type", "timestamp", "read"]
+    },
+    "AISummary": {
+      "title": "AISummary",
+      "description": "AI-generated monthly summary and commentary",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "campaignId": { "type": "string" },
+        "month": { "type": "string", "description": "YYYY-MM format" },
+        "content": { "type": "string", "description": "The AI commentary text" },
+        "createdAt": { "type": "number" }
+      },
+      "required": ["id", "campaignId", "month", "content"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profile documents"
+    },
+    "/wallets/{userId}": {
+      "schema": "WalletState",
+      "description": "User wallet and usage metrics"
+    },
+    "/campaigns/{campaignId}": {
+      "schema": "Campaign",
+      "description": "Global or organization-wide campaigns"
+    },
+    "/organizations/{orgId}/members/{memberId}": {
+      "schema": "TeamMember",
+      "description": "Team members within an organization"
+    },
+    "/reports/{reportId}": {
+      "schema": "AIActionReport",
+      "description": "Optimization logs"
+    },
+    "/audit_logs/{logId}": {
+      "schema": "AuditLog",
+      "description": "Administrative audit trail"
+    },
+    "/transactions/{transactionId}": {
+      "schema": "Transaction",
+      "description": "Wallet transaction records"
+    },
+    "/announcements/{announcementId}": {
+      "schema": "Announcement",
+      "description": "System-wide announcements"
+    },
+    "/satellite_pages/{pageId}": {
+      "schema": "SatellitePage",
+      "description": "AI-generated SEO satellite pages"
+    },
+    "/clients/{clientId}": {
+      "schema": "Client",
+      "description": "Client organizations"
+    },
+    "/sites/{siteId}": {
+      "schema": "Site",
+      "description": "Managed websites"
+    },
+    "/users/{userId}/notifications/{notifId}": {
+      "schema": "AppNotification",
+      "description": "User notifications"
+    },
+    "/organizations/{orgId}/settings/{settingId}": {
+      "schema": "object",
+      "description": "Organization settings"
+    },
+    "/ai_summaries/{summaryId}": {
+      "schema": "AISummary",
+      "description": "AI-generated monthly summaries"
+    }
+  }
+}
