@@ -95,26 +95,23 @@ export async function generateAdSuggestions(
     }
   `;
 
-  // Use Claude for Standard/Pro plans with Gemini fallback
-  if (plan === 'Standard' || plan === 'Pro') {
-    try {
-      const model = plan === 'Pro' ? "claude-opus-4-5" : "claude-sonnet-4-5";
-      const result = await callClaude({
-        model,
-        system: "あなたはプロの広告運用エージェントです。JSON形式で回答してください。",
-        messages: [{ role: 'user', content: prompt }]
-      });
-      
-      const content = result.content[0].text;
-      const jsonMatch = content.match(/\{[\s\S]*\}/);
-      return JSON.parse(jsonMatch ? jsonMatch[0] : content) as AdSuggestions;
-    } catch (error) {
-      console.warn("Claude API failed, falling back to Gemini:", error);
-      // Continue to Gemini logic below
-    }
+  // Claude is the primary engine for all plans. Gemini is the fallback.
+  try {
+    const result = await callClaude({
+      model: "claude-sonnet-4-5",
+      system: "あなたはプロの広告運用エージェントです。JSON形式で回答してください。",
+      messages: [{ role: 'user', content: prompt }]
+    });
+
+    const content = result.content[0].text;
+    const jsonMatch = content.match(/\{[\s\S]*\}/);
+    return JSON.parse(jsonMatch ? jsonMatch[0] : content) as AdSuggestions;
+  } catch (error) {
+    console.warn("Claude API failed, falling back to Gemini:", error);
+    // Continue to Gemini logic below
   }
 
-  // Gemini logic (Default or Fallback)
+  // Gemini fallback
   const response = await callGemini({
     model: "gemini-2.0-flash",
     contents: prompt,
@@ -191,20 +188,18 @@ export async function getAIAdvice(
     }
   `;
 
-  if (plan === 'Standard' || plan === 'Pro') {
-    try {
-      const model = plan === 'Pro' ? "claude-opus-4-5" : "claude-sonnet-4-5";
-      const result = await callClaude({
-        model,
-        system: "あなたは広告診断の専門家です。JSON形式で回答してください。",
-        messages: [{ role: 'user', content: prompt }]
-      });
-      const resContent = result.content[0].text;
-      const jsonMatch = resContent.match(/\{[\s\S]*\}/);
-      return JSON.parse(jsonMatch ? jsonMatch[0] : resContent) as AIAdvice;
-    } catch (error) {
-      console.warn("Claude API failed, falling back to Gemini:", error);
-    }
+  // Claude is the primary engine for all plans. Gemini is the fallback.
+  try {
+    const result = await callClaude({
+      model: "claude-sonnet-4-5",
+      system: "あなたは広告診断の専門家です。JSON形式で回答してください。",
+      messages: [{ role: 'user', content: prompt }]
+    });
+    const resContent = result.content[0].text;
+    const jsonMatch = resContent.match(/\{[\s\S]*\}/);
+    return JSON.parse(jsonMatch ? jsonMatch[0] : resContent) as AIAdvice;
+  } catch (error) {
+    console.warn("Claude API failed, falling back to Gemini:", error);
   }
 
   const response = await callGemini({
@@ -330,20 +325,18 @@ export async function generateMarketingContent(
   const prompt = prompts[type];
   let generatedData;
 
-  if (plan === 'Standard' || plan === 'Pro') {
-    try {
-      const model = plan === 'Pro' ? "claude-opus-4-5" : "claude-sonnet-4-5";
-      const result = await callClaude({
-        model,
-        system: "あなたはマーケティングの専門家です。JSON形式で回答してください。",
-        messages: [{ role: 'user', content: prompt }]
-      });
-      const resContent = result.content[0].text;
-      const jsonMatch = resContent.match(/\{[\s\S]*\}/);
-      generatedData = JSON.parse(jsonMatch ? jsonMatch[0] : resContent);
-    } catch (error) {
-      console.warn("Claude API failed, falling back to Gemini:", error);
-    }
+  // Claude is the primary engine for all plans. Gemini is the fallback.
+  try {
+    const result = await callClaude({
+      model: "claude-sonnet-4-5",
+      system: "あなたはマーケティングの専門家です。JSON形式で回答してください。",
+      messages: [{ role: 'user', content: prompt }]
+    });
+    const resContent = result.content[0].text;
+    const jsonMatch = resContent.match(/\{[\s\S]*\}/);
+    generatedData = JSON.parse(jsonMatch ? jsonMatch[0] : resContent);
+  } catch (error) {
+    console.warn("Claude API failed, falling back to Gemini:", error);
   }
 
   if (!generatedData) {
@@ -397,17 +390,18 @@ export async function generateMarketingContent(
 
   let safetyData;
   try {
-    if (plan === 'Standard' || plan === 'Pro') {
-      const model = "claude-sonnet-4-5";
+    // Claude is the primary safety engine for all plans. Gemini is the fallback.
+    try {
       const result = await callClaude({
-        model,
+        model: "claude-sonnet-4-5",
         system: "あなたはコンテンツ検閲エンジンです。JSON形式で回答してください。",
         messages: [{ role: 'user', content: safetyCheckPrompt }]
       });
       const resContent = result.content[0].text;
       const jsonMatch = resContent.match(/\{[\s\S]*\}/);
       safetyData = JSON.parse(jsonMatch ? jsonMatch[0] : resContent);
-    } else {
+    } catch (claudeErr) {
+      console.warn("Claude safety check failed, falling back to Gemini:", claudeErr);
       const safetyResponse = await callGemini({
         model: "gemini-2.0-flash",
         contents: safetyCheckPrompt,
@@ -481,20 +475,18 @@ export async function getOrchestrationPlan(
     }
   `;
 
-  if (plan === 'Standard' || plan === 'Pro') {
-    try {
-      const model = plan === 'Pro' ? "claude-opus-4-5" : "claude-sonnet-4-5";
-      const result = await callClaude({
-        model,
-        system: "あなたは戦略立案の専門家です。JSON形式で回答してください。",
-        messages: [{ role: 'user', content: prompt }]
-      });
-      const resContent = result.content[0].text;
-      const jsonMatch = resContent.match(/\{[\s\S]*\}/);
-      return JSON.parse(jsonMatch ? jsonMatch[0] : resContent) as StrategicPlan;
-    } catch (error) {
-      console.warn("Claude API failed, falling back to Gemini:", error);
-    }
+  // Claude is the primary engine for all plans. Gemini is the fallback.
+  try {
+    const result = await callClaude({
+      model: "claude-sonnet-4-5",
+      system: "あなたは戦略立案の専門家です。JSON形式で回答してください。",
+      messages: [{ role: 'user', content: prompt }]
+    });
+    const resContent = result.content[0].text;
+    const jsonMatch = resContent.match(/\{[\s\S]*\}/);
+    return JSON.parse(jsonMatch ? jsonMatch[0] : resContent) as StrategicPlan;
+  } catch (error) {
+    console.warn("Claude API failed, falling back to Gemini:", error);
   }
 
   const response = await callGemini({
@@ -648,18 +640,16 @@ A：Agencyプランでクライアント管理機能が使えます。
 ---
   `;
 
-  if (plan === 'Standard' || plan === 'Pro') {
-    try {
-      const model = plan === 'Pro' ? "claude-opus-4-5" : "claude-sonnet-4-5";
-      const result = await callClaude({
-        model,
-        system: systemInstruction,
-        messages: [{ role: 'user', content: query }]
-      });
-      return result.content[0].text;
-    } catch (error) {
-      console.warn("Claude API failed, falling back to Gemini:", error);
-    }
+  // Claude is the primary engine for all plans. Gemini is the fallback.
+  try {
+    const result = await callClaude({
+      model: "claude-sonnet-4-5",
+      system: systemInstruction,
+      messages: [{ role: 'user', content: query }]
+    });
+    return result.content[0].text;
+  } catch (error) {
+    console.warn("Claude API failed, falling back to Gemini:", error);
   }
 
   const response = await callGemini({
