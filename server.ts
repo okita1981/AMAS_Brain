@@ -526,7 +526,7 @@ async function startServer() {
           model: model || "gpt-4o",
           messages,
           temperature: typeof temperature === "number" ? temperature : 0.7,
-          ...(typeof max_tokens === "number" ? { max_tokens } : {}),
+          max_tokens: typeof max_tokens === "number" ? max_tokens : 4096,
           ...(response_format ? { response_format } : {}),
         }),
       });
@@ -552,6 +552,16 @@ async function startServer() {
               : apiResponse.status === 429
               ? "Rate limited by OpenAI. Reduce request frequency or check quota."
               : undefined,
+        });
+      }
+
+      // Reject the rare 2xx + unparseable body case explicitly so the client
+      // doesn't have to crash on `.choices` access.
+      if (!bodyJson || !Array.isArray(bodyJson.choices) || bodyJson.choices.length === 0) {
+        console.error("[/api/ai/gpt] OpenAI returned 2xx with no choices:", bodyText.slice(0, 500));
+        return res.status(502).json({
+          error: "OpenAI returned an unexpected response shape (no choices).",
+          code: "GPT_EMPTY_RESPONSE",
         });
       }
 

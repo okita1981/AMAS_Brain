@@ -61,31 +61,39 @@ async function callClaude(params: {
 }
 
 // Helper to call GPT-4o via Backend. Returns the raw OpenAI Chat Completion
-// response. Read the assistant text via `result.choices[0].message.content`.
+// response. Read the assistant text via `getGPTText(result)` so empty / null
+// content surfaces as a typed error instead of crashing on `.match` / `.map`.
 async function callGPT(params: {
   model?: string;
   system?: string;
   messages: { role: 'user' | 'assistant'; content: string }[];
   temperature?: number;
+  max_tokens?: number;
   response_format?: { type: 'json_object' | 'text' };
-}): Promise<{ choices: Array<{ message: { role: string; content: string } }> }> {
+}): Promise<{ choices: Array<{ message: { role: string; content: string | null } }> }> {
   const openaiMessages: { role: string; content: string }[] = [];
   if (params.system) openaiMessages.push({ role: 'system', content: params.system });
   openaiMessages.push(...params.messages);
 
+  // Only include keys when they have a value — `JSON.stringify` already drops
+  // `undefined` props, but being explicit guards against future refactors that
+  // might serialise via a different path.
+  const body: Record<string, unknown> = {
+    model: params.model || 'gpt-4o',
+    messages: openaiMessages,
+  };
+  if (typeof params.temperature === 'number') body.temperature = params.temperature;
+  if (typeof params.max_tokens === 'number') body.max_tokens = params.max_tokens;
+  if (params.response_format) body.response_format = params.response_format;
+
   const response = await fetch("/api/ai/gpt", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: params.model || 'gpt-4o',
-      messages: openaiMessages,
-      temperature: params.temperature,
-      response_format: params.response_format,
-    }),
+    body: JSON.stringify(body),
   });
 
   if (!response.ok) {
-    let message = "Failed to call GPT API";
+    let message = `Failed to call GPT API (HTTP ${response.status})`;
     try {
       const err = await response.json();
       message = err.error || message;
@@ -93,7 +101,29 @@ async function callGPT(params: {
     throw new Error(message);
   }
 
-  return response.json();
+  const data = await response.json();
+
+  // Validate response shape so each caller doesn't have to. Failures here are
+  // caught by the per-function try/catch and trigger the Gemini fallback.
+  if (!data || typeof data !== 'object') {
+    throw new Error("GPT API returned an empty body.");
+  }
+  if (!Array.isArray((data as any).choices) || (data as any).choices.length === 0) {
+    throw new Error("GPT API response is missing 'choices'.");
+  }
+  return data;
+}
+
+// Safely pull the assistant text out of a chat-completion response. Throws
+// when the model returned no usable content so the caller's try/catch can
+// route to the Gemini fallback.
+function getGPTText(result: { choices: Array<{ message: { content: string | null } }> }): string {
+  const choice = result?.choices?.[0];
+  const content = choice?.message?.content;
+  if (typeof content !== 'string' || content.length === 0) {
+    throw new Error("GPT returned no text content.");
+  }
+  return content;
 }
 
 export async function generateAdSuggestions(
@@ -140,7 +170,7 @@ export async function generateAdSuggestions(
       response_format: { type: 'json_object' },
     });
 
-    const content = result.choices[0].message.content;
+    const content = getGPTText(result);
     const jsonMatch = content.match(/\{[\s\S]*\}/);
     return JSON.parse(jsonMatch ? jsonMatch[0] : content) as AdSuggestions;
   } catch (error) {
@@ -233,7 +263,7 @@ export async function getAIAdvice(
       messages: [{ role: 'user', content: prompt }],
       response_format: { type: 'json_object' },
     });
-    const resContent = result.choices[0].message.content;
+    const resContent = getGPTText(result);
     const jsonMatch = resContent.match(/\{[\s\S]*\}/);
     return JSON.parse(jsonMatch ? jsonMatch[0] : resContent) as AIAdvice;
   } catch (error) {
@@ -371,7 +401,7 @@ export async function generateMarketingContent(
       messages: [{ role: 'user', content: prompt }],
       response_format: { type: 'json_object' },
     });
-    const resContent = result.choices[0].message.content;
+    const resContent = getGPTText(result);
     const jsonMatch = resContent.match(/\{[\s\S]*\}/);
     generatedData = JSON.parse(jsonMatch ? jsonMatch[0] : resContent);
   } catch (error) {
@@ -437,7 +467,7 @@ export async function generateMarketingContent(
         messages: [{ role: 'user', content: safetyCheckPrompt }],
         response_format: { type: 'json_object' },
       });
-      const resContent = result.choices[0].message.content;
+      const resContent = getGPTText(result);
       const jsonMatch = resContent.match(/\{[\s\S]*\}/);
       safetyData = JSON.parse(jsonMatch ? jsonMatch[0] : resContent);
     } catch (gptErr) {
@@ -688,7 +718,7 @@ A：Agencyプランでクライアント管理機能が使えます。
       messages: [{ role: 'user', content: query }],
       temperature: 0.7,
     });
-    return result.choices[0].message.content;
+    return getGPTText(result);
   } catch (error) {
     console.warn("GPT-4o failed, falling back to Gemini:", error);
   }
@@ -888,7 +918,7 @@ AMAS バナーデザイン・プランナー（コンセプト + コピーテキ
       temperature: 0.7,
       response_format: { type: 'json_object' },
     });
-    const text = result?.choices?.[0]?.message?.content || "";
+    const text = getGPTText(result);
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     const parsed = JSON.parse(jsonMatch ? jsonMatch[0] : text);
     if (Array.isArray(parsed.suggestions) && parsed.suggestions.length > 0) {
