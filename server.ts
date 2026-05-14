@@ -1384,9 +1384,65 @@ ${totals.count}件`;
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), 'dist');
-    app.use(express.static(distPath));
+    const indexPath = path.join(distPath, 'index.html');
+
+    // Startup sanity check: fail loudly if the frontend build is missing.
+    // Without this, a stale container would silently 200 every request with
+    // index.html — including JS module requests, causing the browser's
+    // "Failed to load module script: ... MIME type of text/html" error.
+    if (!fs.existsSync(distPath)) {
+      console.error(
+        `[startup] FATAL: dist/ not found at ${distPath}. ` +
+        `Run 'npm run build' before starting the production server.`
+      );
+    } else if (!fs.existsSync(indexPath)) {
+      console.error(
+        `[startup] FATAL: dist/index.html not found. The frontend build is incomplete.`
+      );
+    } else {
+      console.log(`[startup] Serving static files from ${distPath}`);
+    }
+
+    // Serve built assets. `express.static` sets Content-Type from the file
+    // extension; the explicit setHeaders block is defensive in case a host
+    // strips or overrides defaults.
+    app.use(
+      express.static(distPath, {
+        index: false, // let the SPA fallback below decide what serves `/`
+        setHeaders: (res, filePath) => {
+          if (filePath.endsWith('.js') || filePath.endsWith('.mjs')) {
+            res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+          } else if (filePath.endsWith('.css')) {
+            res.setHeader('Content-Type', 'text/css; charset=utf-8');
+          } else if (filePath.endsWith('.json')) {
+            res.setHeader('Content-Type', 'application/json; charset=utf-8');
+          } else if (filePath.endsWith('.svg')) {
+            res.setHeader('Content-Type', 'image/svg+xml');
+          }
+        },
+      })
+    );
+
+    // SPA fallback. CRITICAL: only serve index.html for paths that actually
+    // look like SPA routes. Without these guards a missing JS bundle would
+    // get index.html with Content-Type: text/html, which the browser then
+    // rejects as a module script.
     app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
+      // 1) Unknown API routes should return JSON 404, not HTML.
+      if (req.path.startsWith('/api/')) {
+        return res.status(404).json({
+          error: 'API endpoint not found',
+          path: req.path,
+        });
+      }
+      // 2) Anything with a file extension is an asset request that
+      // `express.static` failed to satisfy — return a real 404 so the
+      // browser shows a clean error instead of MIME-mismatching a module.
+      if (path.extname(req.path)) {
+        return res.status(404).type('text/plain').send('Not Found');
+      }
+      // 3) Genuine SPA navigation (e.g. /dashboard, /wallet, /clients).
+      res.sendFile(indexPath);
     });
   }
 
