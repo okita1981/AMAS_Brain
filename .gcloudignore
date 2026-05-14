@@ -1,0 +1,37 @@
+# .gcloudignore — controls what gets uploaded to Cloud Run / Cloud Build.
+# When this file is absent, gcloud falls back to .gitignore, which excludes
+# dist/ — that caused the white screen / "MIME type of text/html" issue on
+# the deployed container. This file overrides that behaviour.
+
+# --- Version control / IDE noise (always skip) ---
+.git/
+.gitignore
+.vscode/
+.idea/
+.DS_Store
+
+# --- Local dependencies (Cloud Build will reinstall) ---
+node_modules/
+coverage/
+
+# --- Local environment & secrets (NEVER upload) ---
+.env
+.env.*
+!.env.example
+firebase-adminsdk-*.json
+*-service-account.json
+credentials.json
+
+# --- Logs / temporary files ---
+*.log
+npm-debug.log*
+.npm
+
+# --- Local-only build artefacts that should not ship ---
+build/
+
+# --- NOTE ---
+# dist/ is intentionally NOT excluded. If you pre-build locally, the dist/
+# folder is uploaded to the container so the server can serve it. If you
+# rely on Cloud Build / buildpacks to run `npm run build`, that still works
+# and simply rebuilds dist/ inside the image.
