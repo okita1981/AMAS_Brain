@@ -1,5 +1,5 @@
 import { Type } from "@google/genai";
-import { AgentType, MarketingTask, IndustryType, StrategicPlan, AIAdvice, PlatformType, AdContent, PlanType, AdCensorshipResult, BannerDesignPreset, BannerType, Campaign, KeywordSuggestion } from "../types";
+import { AgentType, MarketingTask, IndustryType, StrategicPlan, AIAdvice, PlatformType, AdContent, PlanType, AdCensorshipResult, BannerDesignPreset, BannerType, Campaign, KeywordSuggestion, Draft, DraftSummary, DraftStatus } from "../types";
 
 // Gemini is now invoked via the backend proxy at /api/ai/gemini so the API key
 // never reaches the browser. `Type` from @google/genai is just an enum of plain
@@ -1273,4 +1273,53 @@ export async function estimateKeywordVolume(
     targetUrl: targetUrl || undefined,
   });
   return Array.isArray(data?.items) ? data.items : [];
+}
+
+// ── Drafts ───────────────────────────────────────────────────────
+// バックエンド /api/drafts/* を呼ぶシンプルなラッパー。
+// snapshot は呼び出し側で JSON.stringify したものを渡す。
+
+export interface DraftSaveInput {
+  name: string;
+  status?: DraftStatus;
+  wizardData: string;   // JSON.stringify した NewCampaignWizard 全状態
+}
+
+async function draftFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(`/api/drafts${path}`, init);
+  if (!response.ok) {
+    if (response.status === 204) return undefined as T;
+    let message = `Draft API ${path} failed (HTTP ${response.status})`;
+    try {
+      const err = await response.json();
+      message = err.error || message;
+    } catch {}
+    throw new Error(message);
+  }
+  // 204 No Content (DELETE) — body は空
+  if (response.status === 204) return undefined as T;
+  return response.json() as Promise<T>;
+}
+
+export async function saveDraft(userId: string, draftData: DraftSaveInput): Promise<Draft> {
+  return draftFetch<Draft>("/save", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ userId, ...draftData }),
+  });
+}
+
+export async function listDrafts(userId: string): Promise<DraftSummary[]> {
+  const data = await draftFetch<{ drafts: DraftSummary[] }>(
+    `/list?userId=${encodeURIComponent(userId)}`,
+  );
+  return Array.isArray(data?.drafts) ? data.drafts : [];
+}
+
+export async function getDraft(id: string): Promise<Draft> {
+  return draftFetch<Draft>(`/${encodeURIComponent(id)}`);
+}
+
+export async function deleteDraft(id: string): Promise<void> {
+  await draftFetch<void>(`/${encodeURIComponent(id)}`, { method: "DELETE" });
 }

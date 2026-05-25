@@ -180,12 +180,13 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
   throw new Error(JSON.stringify(errInfo));
 }
 
-import { Agent, AgentType, MarketingTask, SatellitePage, DashboardMetrics, IndustryType, StrategicPlan, AIActionReport, AdContent, PlanType, PLANS, PlanDefinition, Campaign, WalletState, Transaction, AuditLog, TeamMember, AppNotification, Announcement, PlatformType, PLATFORM_LABELS, HearingSession, Client, Site, BannerType, BannerDesignPreset, BannerMaster, TargetInfo, DEFAULT_TARGET_INFO } from './types';
-import { generateMarketingContent, getOrchestrationPlan, generateAdSuggestions, AdSuggestions, getHelpResponse, getAIHearingQuestions, checkAdContentCensorship, generateBannerSuggestions, generateBannerImage, BannerSuggestion } from './services/aiService';
+import { Agent, AgentType, MarketingTask, SatellitePage, DashboardMetrics, IndustryType, StrategicPlan, AIActionReport, AdContent, PlanType, PLANS, PlanDefinition, Campaign, WalletState, Transaction, AuditLog, TeamMember, AppNotification, Announcement, PlatformType, PLATFORM_LABELS, HearingSession, Client, Site, BannerType, BannerDesignPreset, BannerMaster, TargetInfo, DEFAULT_TARGET_INFO, Draft } from './types';
+import { generateMarketingContent, getOrchestrationPlan, generateAdSuggestions, AdSuggestions, getHelpResponse, getAIHearingQuestions, checkAdContentCensorship, generateBannerSuggestions, generateBannerImage, BannerSuggestion, saveDraft as apiSaveDraft } from './services/aiService';
 import MediaSimulator from './components/MediaSimulator';
 import BannerPreview from './components/BannerPreview';
 import Wallet from './components/Wallet';
 import StepTarget from './components/steps/StepTarget';
+import DraftsPage from './components/DraftsPage';
 
 
 const INITIAL_AGENTS: Agent[] = [
@@ -1388,7 +1389,8 @@ export default function App() {
 
   const [showCredentialsModal, setShowCredentialsModal] = useState(false);
   const [showGlow, setShowGlow] = useState(false);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'agents' | 'approvals' | 'settings' | 'new_campaign' | 'wallet' | 'help' | 'cockpit' | 'admin' | 'subscription' | 'tracking' | 'connectors' | 'satellite-fleet' | 'clients'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'agents' | 'approvals' | 'settings' | 'new_campaign' | 'wallet' | 'help' | 'cockpit' | 'admin' | 'subscription' | 'tracking' | 'connectors' | 'satellite-fleet' | 'clients' | 'drafts'>('dashboard');
+  const [pendingDraftRestore, setPendingDraftRestore] = useState<Draft | null>(null);
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [sites, setSites] = useState<Site[]>([]);
@@ -3791,8 +3793,8 @@ export default function App() {
             label="SEOサテライト管理"
             badge={satellitePages.length}
           />
-          <NavItem 
-            active={activeTab === 'new_campaign'} 
+          <NavItem
+            active={activeTab === 'new_campaign'}
             onClick={() => {
               console.log('New Campaign button clicked');
               setActiveTab('new_campaign');
@@ -3800,8 +3802,14 @@ export default function App() {
             icon={<Plus size={20} />}
             label="新規入稿"
           />
-          <NavItem 
-            active={activeTab === 'wallet'} 
+          <NavItem
+            active={activeTab === 'drafts'}
+            onClick={() => setActiveTab('drafts')}
+            icon={<FileText size={20} />}
+            label="下書き一覧"
+          />
+          <NavItem
+            active={activeTab === 'wallet'}
             onClick={() => setActiveTab('wallet')}
             icon={<WalletIcon size={20} />}
             label="Wallet"
@@ -3886,7 +3894,8 @@ export default function App() {
                activeTab === 'agents' ? 'エージェント・オーケストラ' : 
                activeTab === 'approvals' ? 'AI検閲・承認' : 
                activeTab === 'new_campaign' ? '新規入稿' :
-               activeTab === 'wallet' ? 'Wallet' : 
+               activeTab === 'drafts' ? '下書き一覧' :
+               activeTab === 'wallet' ? 'Wallet' :
                activeTab === 'subscription' ? 'プラン選択' :
                activeTab === 'tracking' ? 'タグ・計測設定' :
                activeTab === 'connectors' ? 'データ連携' :
@@ -5482,11 +5491,13 @@ export default function App() {
                 exit={{ opacity: 0, y: -20 }}
                 className="max-w-4xl"
               >
-                <NewCampaignWizard 
+                <NewCampaignWizard
                   user={user}
                   profile={profile}
                   initialClientId={selectedClientId !== 'all' ? selectedClientId : undefined}
                   initialSiteId={selectedSiteId !== 'all' ? selectedSiteId : undefined}
+                  initialDraft={pendingDraftRestore}
+                  onDraftRestored={() => setPendingDraftRestore(null)}
                   onComplete={() => {
                     setSelectedCampaignId('all');
                     setSelectedClientId('all');
@@ -5634,6 +5645,24 @@ export default function App() {
                   clients={clients}
                   sites={sites}
                   notify={notify}
+                />
+              </motion.div>
+            )}
+
+            {activeTab === 'drafts' && user && (
+              <motion.div
+                key="drafts"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20 }}
+                className="max-w-5xl"
+              >
+                <DraftsPage
+                  userId={user.uid}
+                  onRestore={(draft) => {
+                    setPendingDraftRestore(draft);
+                    setActiveTab('new_campaign');
+                  }}
                 />
               </motion.div>
             )}
@@ -8762,34 +8791,37 @@ function TuningModal({
   );
 }
 
-function NewCampaignWizard({ 
-  onComplete, 
-  onCampaignCreated, 
-  industry, 
-  plan, 
-  onUpgrade, 
-  systemSettings, 
-  clients, 
-  sites, 
-  notify, 
+function NewCampaignWizard({
+  onComplete,
+  onCampaignCreated,
+  industry,
+  plan,
+  onUpgrade,
+  systemSettings,
+  clients,
+  sites,
+  notify,
   user,
   profile,
   initialClientId,
-  initialSiteId
-}: { 
-  onComplete: () => void, 
-  onCampaignCreated: (c: Campaign) => void, 
-  industry: IndustryType, 
-  plan: PlanDefinition, 
-  onUpgrade?: () => void, 
-  systemSettings?: any, 
-  clients: Client[], 
-  sites: Site[], 
-  notify: (msg: string, type: 'success' | 'info' | 'warning' | 'error') => void, 
+  initialSiteId,
+  initialDraft
+}: {
+  onComplete: () => void,
+  onCampaignCreated: (c: Campaign) => void,
+  industry: IndustryType,
+  plan: PlanDefinition,
+  onUpgrade?: () => void,
+  systemSettings?: any,
+  clients: Client[],
+  sites: Site[],
+  notify: (msg: string, type: 'success' | 'info' | 'warning' | 'error') => void,
   user: any,
   profile: any,
   initialClientId?: string,
-  initialSiteId?: string
+  initialSiteId?: string,
+  initialDraft?: Draft | null,
+  onDraftRestored?: () => void
 }) {
   const [step, setStep] = useState(1);
   const [isGeneratingSuggestions, setIsGeneratingSuggestions] = useState(false);
@@ -8992,6 +9024,75 @@ function NewCampaignWizard({
   const [isCensoring, setIsCensoring] = useState(false);
   const [censorshipResult, setCensorshipResult] = useState<any>(null);
   const [targetInfo, setTargetInfo] = useState<TargetInfo>(DEFAULT_TARGET_INFO);
+  const [isSavingDraft, setIsSavingDraft] = useState(false);
+  const [currentDraftId, setCurrentDraftId] = useState<string | null>(null);
+
+  // 下書きから復元（初回のみ）
+  useEffect(() => {
+    if (!initialDraft) return;
+    try {
+      const snap = JSON.parse(initialDraft.wizardData) as Partial<{
+        step: number;
+        formData: typeof formData;
+        selectedHeadlines: string[];
+        selectedKeywords: string[];
+        targetInfo: TargetInfo;
+        aiSuggestions: AdSuggestions;
+        bannerSuggestions: any[];
+        censorshipResult: any;
+      }>;
+      if (snap.formData) setFormData(prev => ({ ...prev, ...snap.formData }));
+      if (Array.isArray(snap.selectedHeadlines)) setSelectedHeadlines(snap.selectedHeadlines);
+      if (Array.isArray(snap.selectedKeywords)) setSelectedKeywords(snap.selectedKeywords);
+      if (snap.targetInfo) setTargetInfo(snap.targetInfo);
+      if (snap.aiSuggestions) setAiSuggestions(snap.aiSuggestions);
+      if (Array.isArray(snap.bannerSuggestions)) setBannerSuggestions(snap.bannerSuggestions);
+      if (snap.censorshipResult) setCensorshipResult(snap.censorshipResult);
+      if (typeof snap.step === 'number' && snap.step >= 1) setStep(snap.step);
+      setCurrentDraftId(initialDraft.id);
+      onDraftRestored?.();
+    } catch (err) {
+      console.error('[NewCampaignWizard] Failed to restore draft:', err);
+      notify('下書きの復元に失敗しました', 'error');
+      onDraftRestored?.();
+    }
+    // initialDraft の id が変わったときだけ走らせる（中身編集での再復元を避ける）
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialDraft?.id]);
+
+  // 下書きとして保存（同名は上書き）
+  const handleSaveDraft = async () => {
+    if (!user?.uid) {
+      notify('ログインが必要です', 'error');
+      return;
+    }
+    const draftName = (formData.name || '').trim() || `下書き ${new Date().toLocaleString('ja-JP')}`;
+    setIsSavingDraft(true);
+    try {
+      const snapshot = {
+        step,
+        formData,
+        selectedHeadlines,
+        selectedKeywords,
+        targetInfo,
+        aiSuggestions,
+        bannerSuggestions,
+        censorshipResult,
+      };
+      const saved = await apiSaveDraft(user.uid, {
+        name: draftName,
+        status: 'draft',
+        wizardData: JSON.stringify(snapshot),
+      });
+      setCurrentDraftId(saved.id);
+      notify(`下書き「${saved.name}」を保存しました`, 'success');
+    } catch (err: any) {
+      console.error('[handleSaveDraft] error:', err);
+      notify(err?.message || '下書きの保存に失敗しました', 'error');
+    } finally {
+      setIsSavingDraft(false);
+    }
+  };
 
   const nextStep = () => {
     if (currentStepInfo.type === 'basic') {
@@ -10052,14 +10153,33 @@ function NewCampaignWizard({
       </div>
 
       {/* Footer */}
-      <div className="p-8 border-t border-gray-100 flex items-center justify-between bg-gray-50/30">
-        <button 
+      <div className="p-8 border-t border-gray-100 flex items-center justify-between bg-gray-50/30 gap-3">
+        <button
           onClick={step === 1 ? onComplete : prevStep}
           className="px-6 py-3 rounded-xl text-sm font-bold text-gray-500 hover:bg-gray-100 transition-all active:scale-95 touch-manipulation"
         >
           {step === 1 ? 'キャンセル' : '戻る'}
         </button>
-        <button 
+
+        <div className="flex items-center gap-3 ml-auto">
+          <button
+            type="button"
+            onClick={handleSaveDraft}
+            disabled={isSavingDraft}
+            className="px-5 py-3 rounded-xl text-sm font-bold border transition-all active:scale-95 touch-manipulation flex items-center gap-2 border-gray-200 text-gray-700 hover:bg-gray-100 disabled:opacity-40"
+            title={currentDraftId ? '上書き保存' : '下書き保存'}
+          >
+            {isSavingDraft ? (
+              <>
+                <Loader2 size={16} className="animate-spin" />
+                保存中…
+              </>
+            ) : (
+              <>💾 {currentDraftId ? '上書き保存' : '下書き保存'}</>
+            )}
+          </button>
+
+        <button
           type="button"
           onClick={step === totalSteps ? handleFinish : nextStep}
           disabled={isGeneratingSuggestions || isCensoring || (currentStepInfo.type === 'basic' && (!formData.name || !formData.budget || !formData.industry)) || (currentStepInfo.type === 'review' && !censorshipResult?.passed)}
@@ -10081,6 +10201,7 @@ function NewCampaignWizard({
             </>
           )}
         </button>
+        </div>
       </div>
     </div>
   );

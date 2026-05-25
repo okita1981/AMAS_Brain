@@ -566,3 +566,19 @@ export interface KeywordSuggestion {
   trend: 'up' | 'stable' | 'down';
   reason: string;
 }
+
+// ── 下書き（NewCampaignWizard状態のスナップショット保存） ──
+export type DraftStatus = 'draft' | 'completed';
+
+export interface Draft {
+  id: string;
+  userId: string;
+  name: string;
+  status: DraftStatus;
+  wizardData: string;   // JSON文字列。NewCampaignWizard全状態のスナップショット
+  createdAt: number;
+  updatedAt: number;
+}
+
+// 一覧表示用（wizardDataを除いた軽量シェイプ）
+export type DraftSummary = Omit<Draft, 'wizardData'>;

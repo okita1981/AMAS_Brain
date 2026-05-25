@@ -1182,6 +1182,154 @@ ${cleanKeywords.map((k) => `- ${k}`).join("\n")}
     }
   });
 
+  // ===============================================================
+  // Campaign Draft Endpoints
+  // ad-campaign-studio の routers/drafts.py を Firestore で移植。
+  // 同一 userId + name の組み合わせは upsert（同名は上書き、別名は新規）。
+  // ===============================================================
+
+  // 7) POST /api/drafts/save
+  // 入力: { userId, name, status?, wizardData }
+  // 出力: { id, userId, name, status, createdAt, updatedAt }
+  app.post("/api/drafts/save", async (req, res) => {
+    const { userId, name, status, wizardData } = req.body || {};
+    if (typeof userId !== "string" || !userId) {
+      return res.status(400).json({ error: "userId is required.", code: "BAD_REQUEST" });
+    }
+    if (typeof name !== "string" || name.trim().length === 0) {
+      return res.status(400).json({ error: "name is required.", code: "BAD_REQUEST" });
+    }
+    if (typeof wizardData !== "string") {
+      return res.status(400).json({ error: "wizardData must be a JSON string.", code: "BAD_REQUEST" });
+    }
+    const normalizedStatus: "draft" | "completed" = status === "completed" ? "completed" : "draft";
+    const cleanName = name.trim();
+    const now = Date.now();
+
+    try {
+      // (userId, name) で既存検索 → upsert
+      const existingSnap = await db
+        .collection("drafts")
+        .where("userId", "==", userId)
+        .where("name", "==", cleanName)
+        .limit(1)
+        .get();
+
+      let docId: string;
+      let createdAt: number;
+      if (!existingSnap.empty) {
+        const existing = existingSnap.docs[0];
+        docId = existing.id;
+        createdAt = (existing.data().createdAt as number) || now;
+        await existing.ref.update({
+          status: normalizedStatus,
+          wizardData,
+          updatedAt: now,
+        });
+      } else {
+        const newRef = await db.collection("drafts").add({
+          userId,
+          name: cleanName,
+          status: normalizedStatus,
+          wizardData,
+          createdAt: now,
+          updatedAt: now,
+        });
+        docId = newRef.id;
+        createdAt = now;
+      }
+
+      res.json({
+        id: docId,
+        userId,
+        name: cleanName,
+        status: normalizedStatus,
+        createdAt,
+        updatedAt: now,
+      });
+    } catch (error: any) {
+      console.error("[/api/drafts/save] error:", error);
+      res.status(500).json({ error: error?.message || "Failed to save draft", code: "DRAFT_SAVE_ERROR" });
+    }
+  });
+
+  // 8) GET /api/drafts/list?userId=xxx
+  // 一覧用に wizardData を除外して返す。updatedAt 降順。
+  app.get("/api/drafts/list", async (req, res) => {
+    const userId = req.query.userId;
+    if (typeof userId !== "string" || !userId) {
+      return res.status(400).json({ error: "userId query param is required.", code: "BAD_REQUEST" });
+    }
+    try {
+      const snap = await db
+        .collection("drafts")
+        .where("userId", "==", userId)
+        .orderBy("updatedAt", "desc")
+        .get();
+      const drafts = snap.docs.map((doc) => {
+        const d = doc.data();
+        return {
+          id: doc.id,
+          userId: d.userId,
+          name: d.name,
+          status: d.status,
+          createdAt: d.createdAt,
+          updatedAt: d.updatedAt,
+        };
+      });
+      res.json({ drafts });
+    } catch (error: any) {
+      console.error("[/api/drafts/list] error:", error);
+      // Firestore の orderBy + where はインデックス未作成だと失敗するので
+      // メッセージにヒントを混ぜて返す。
+      const isIndexError = typeof error?.message === "string" && error.message.includes("requires an index");
+      res.status(500).json({
+        error: error?.message || "Failed to list drafts",
+        code: "DRAFT_LIST_ERROR",
+        hint: isIndexError
+          ? "Firestoreで drafts(userId asc, updatedAt desc) の複合インデックスを作成してください。"
+          : undefined,
+      });
+    }
+  });
+
+  // 9) GET /api/drafts/:id
+  // 1件取得（wizardData を含む）。
+  app.get("/api/drafts/:id", async (req, res) => {
+    const { id } = req.params;
+    if (!id) return res.status(400).json({ error: "id is required.", code: "BAD_REQUEST" });
+    try {
+      const doc = await db.collection("drafts").doc(id).get();
+      if (!doc.exists) return res.status(404).json({ error: "Draft not found", code: "DRAFT_NOT_FOUND" });
+      const d = doc.data() || {};
+      res.json({
+        id: doc.id,
+        userId: d.userId,
+        name: d.name,
+        status: d.status,
+        wizardData: d.wizardData,
+        createdAt: d.createdAt,
+        updatedAt: d.updatedAt,
+      });
+    } catch (error: any) {
+      console.error("[/api/drafts/:id GET] error:", error);
+      res.status(500).json({ error: error?.message || "Failed to get draft", code: "DRAFT_GET_ERROR" });
+    }
+  });
+
+  // 10) DELETE /api/drafts/:id
+  app.delete("/api/drafts/:id", async (req, res) => {
+    const { id } = req.params;
+    if (!id) return res.status(400).json({ error: "id is required.", code: "BAD_REQUEST" });
+    try {
+      await db.collection("drafts").doc(id).delete();
+      res.status(204).send();
+    } catch (error: any) {
+      console.error("[/api/drafts/:id DELETE] error:", error);
+      res.status(500).json({ error: error?.message || "Failed to delete draft", code: "DRAFT_DELETE_ERROR" });
+    }
+  });
+
   // Health check
   app.get("/api/health", (req, res) => {
     res.json({ status: "ok" });
