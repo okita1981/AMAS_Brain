@@ -180,11 +180,12 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
   throw new Error(JSON.stringify(errInfo));
 }
 
-import { Agent, AgentType, MarketingTask, SatellitePage, DashboardMetrics, IndustryType, StrategicPlan, AIActionReport, AdContent, PlanType, PLANS, PlanDefinition, Campaign, WalletState, Transaction, AuditLog, TeamMember, AppNotification, Announcement, PlatformType, PLATFORM_LABELS, HearingSession, Client, Site, BannerType, BannerDesignPreset, BannerMaster } from './types';
+import { Agent, AgentType, MarketingTask, SatellitePage, DashboardMetrics, IndustryType, StrategicPlan, AIActionReport, AdContent, PlanType, PLANS, PlanDefinition, Campaign, WalletState, Transaction, AuditLog, TeamMember, AppNotification, Announcement, PlatformType, PLATFORM_LABELS, HearingSession, Client, Site, BannerType, BannerDesignPreset, BannerMaster, TargetInfo, DEFAULT_TARGET_INFO } from './types';
 import { generateMarketingContent, getOrchestrationPlan, generateAdSuggestions, AdSuggestions, getHelpResponse, getAIHearingQuestions, checkAdContentCensorship, generateBannerSuggestions, generateBannerImage, BannerSuggestion } from './services/aiService';
 import MediaSimulator from './components/MediaSimulator';
 import BannerPreview from './components/BannerPreview';
 import Wallet from './components/Wallet';
+import StepTarget from './components/steps/StepTarget';
 
 
 const INITIAL_AGENTS: Agent[] = [
@@ -8809,11 +8810,6 @@ function NewCampaignWizard({
     banners: [] as BannerMaster[],
     landingPageUrl: systemSettings?.mainSiteUrl || '',
     businessDescription: systemSettings?.businessDescription || '',
-    targeting: {
-      gender: ['all'],
-      age: ['all'],
-      regions: ['全国']
-    },
     platforms: [] as PlatformType[],
     autoStart: true
   });
@@ -8824,23 +8820,17 @@ function NewCampaignWizard({
 
   // 動的なステップ構成の定義
   const getWizardSteps = () => {
-    const steps = [
+    const steps: { id: number; label: string; type: string }[] = [
       { id: 1, label: '基本情報・媒体', type: 'basic' },
-      { id: 2, label: 'コピー案', type: 'copy' }
+      { id: 2, label: 'ターゲット・KW', type: 'target' },
+      { id: 3, label: 'コピー案', type: 'copy' },
     ];
 
     if (hasDisplay) {
-      steps.push({ id: 3, label: 'バナー生成', type: 'banner' });
+      steps.push({ id: 4, label: 'バナー生成', type: 'banner' });
     }
 
-    if (hasSearch) {
-      steps.push({ id: 4, label: 'キーワード', type: 'keyword' });
-    }
-
-    steps.push(
-      { id: 5, label: 'ターゲット', type: 'targeting' },
-      { id: 6, label: 'AI審査', type: 'review' }
-    );
+    steps.push({ id: 5, label: 'AI審査', type: 'review' });
 
     return steps;
   };
@@ -8998,17 +8988,10 @@ function NewCampaignWizard({
 
   const [selectedHeadlines, setSelectedHeadlines] = useState<string[]>([]);
   const [selectedKeywords, setSelectedKeywords] = useState<string[]>([]);
-  const [manualKeyword, setManualKeyword] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isCensoring, setIsCensoring] = useState(false);
   const [censorshipResult, setCensorshipResult] = useState<any>(null);
-
-  const handleAddManualKeyword = () => {
-    if (manualKeyword.trim() && !selectedKeywords.includes(manualKeyword.trim())) {
-      setSelectedKeywords(prev => [...prev, manualKeyword.trim()]);
-      setManualKeyword('');
-    }
-  };
+  const [targetInfo, setTargetInfo] = useState<TargetInfo>(DEFAULT_TARGET_INFO);
 
   const nextStep = () => {
     if (currentStepInfo.type === 'basic') {
@@ -9186,7 +9169,13 @@ function NewCampaignWizard({
           status: 'reviewing',
           platforms: [platform],
           reviewStatus: { [platform]: 'pending' },
-          targeting: formData.targeting,
+          targeting: {
+            gender: [targetInfo.gender],
+            age: targetInfo.ageGroups.length > 0 ? targetInfo.ageGroups : ['all'],
+            regions: targetInfo.region === 'nationwide' || targetInfo.prefectures.length === 0
+              ? ['全国']
+              : targetInfo.prefectures,
+          },
           adContent: {
             headline: formData.headline || selectedHeadlines[0] || '',
             description: formData.description || aiSuggestions.descriptions[0]?.text || '',
@@ -9915,180 +9904,27 @@ function NewCampaignWizard({
           </div>
         )}
 
-        {currentStepInfo.type === 'keyword' && (
+        {currentStepInfo.type === 'target' && (
           <div className="space-y-6">
-            <div className="flex items-center justify-between">
-              <h4 className="text-sm font-bold text-gray-900">推奨キーワード</h4>
-              <button 
-                onClick={() => setSelectedKeywords(aiSuggestions.keywords)}
-                className="text-xs text-blue-600 font-bold hover:underline"
-              >
-                すべて選択
-              </button>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {selectedKeywords.filter(kw => !aiSuggestions.keywords.includes(kw)).map((kw, i) => (
-                <button 
-                  key={`manual-${i}`}
-                  onClick={() => setSelectedKeywords(prev => prev.filter(x => x !== kw))}
-                  className="px-4 py-2 rounded-full border text-sm font-medium transition-all bg-black text-white border-black shadow-lg scale-105"
-                >
-                  {kw}
-                </button>
-              ))}
-              {aiSuggestions.keywords.map((kw, i) => (
-                <button 
-                  key={i}
-                  onClick={() => setSelectedKeywords(prev => prev.includes(kw) ? prev.filter(x => x !== kw) : [...prev, kw])}
-                  className={`px-4 py-2 rounded-full border text-sm font-medium transition-all ${
-                    selectedKeywords.includes(kw)
-                      ? 'bg-black text-white border-black shadow-lg scale-105'
-                      : 'bg-white text-gray-600 border-gray-200 hover:border-gray-400'
-                  }`}
-                >
-                  {kw}
-                </button>
-              ))}
-            </div>
+            <StepTarget
+              targetInfo={targetInfo}
+              setTargetInfo={setTargetInfo}
+              platforms={formData.platforms}
+              selectedKeywords={selectedKeywords}
+              setSelectedKeywords={setSelectedKeywords}
+              suggestedKeywords={aiSuggestions.keywords}
+              platformLabels={PLATFORM_LABELS}
+            />
 
-            <div className="mt-8 p-6 bg-gray-50 rounded-2xl border border-dashed border-gray-300">
-              <div className="flex items-center gap-3 text-gray-500">
-                <button 
-                  onClick={handleAddManualKeyword}
-                  className="p-1 hover:bg-gray-200 rounded-full transition-colors"
-                >
-                  <Plus size={20} />
-                </button>
-                <input 
-                  type="text" 
-                  placeholder="キーワードを手動で追加..."
-                  className="bg-transparent border-none focus:ring-0 text-sm w-full"
-                  value={manualKeyword}
-                  onChange={e => setManualKeyword(e.target.value)}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      handleAddManualKeyword();
-                    }
-                  }}
-                />
-              </div>
-            </div>
-          </div>
-        )}
-
-        {currentStepInfo.type === 'targeting' && (
-          <div className="space-y-8 max-w-2xl">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-              <div className="space-y-4">
-                <label className="block text-sm font-bold text-gray-700">性別</label>
-                <div className="flex flex-wrap gap-2">
-                  {['all', 'male', 'female'].map(g => (
-                    <button
-                      key={g}
-                      onClick={() => {
-                        const current = formData.targeting.gender;
-                        if (g === 'all') {
-                          setFormData(prev => ({ ...prev, targeting: { ...prev.targeting, gender: ['all'] } }));
-                        } else {
-                          const filtered = current.filter(x => x !== 'all');
-                          const next = filtered.includes(g) ? filtered.filter(x => x !== g) : [...filtered, g];
-                          setFormData(prev => ({ ...prev, targeting: { ...prev.targeting, gender: next.length === 0 ? ['all'] : next } }));
-                        }
-                      }}
-                      className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${
-                        formData.targeting.gender.includes(g)
-                          ? 'bg-black text-white shadow-md'
-                          : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
-                      }`}
-                    >
-                      {g === 'all' ? 'すべて' : g === 'male' ? '男性' : '女性'}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="space-y-4">
-                <label className="block text-sm font-bold text-gray-700">年齢層</label>
-                <div className="flex flex-wrap gap-2">
-                  {['all', '18-24', '25-34', '35-44', '45-54', '55-64', '65+'].map(a => (
-                    <button
-                      key={a}
-                      onClick={() => {
-                        const current = formData.targeting.age;
-                        if (a === 'all') {
-                          setFormData(prev => ({ ...prev, targeting: { ...prev.targeting, age: ['all'] } }));
-                        } else {
-                          const filtered = current.filter(x => x !== 'all');
-                          const next = filtered.includes(a) ? filtered.filter(x => x !== a) : [...filtered, a];
-                          setFormData(prev => ({ ...prev, targeting: { ...prev.targeting, age: next.length === 0 ? ['all'] : next } }));
-                        }
-                      }}
-                      className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${
-                        formData.targeting.age.includes(a)
-                          ? 'bg-black text-white shadow-md'
-                          : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
-                      }`}
-                    >
-                      {a === 'all' ? 'すべて' : a}
-                    </button>
-                  ))}
-                </div>
-                <p className="text-[10px] text-gray-400">※媒体によって年齢セグメントが異なるため、選択された範囲をカバーするように配信されます。</p>
-              </div>
-            </div>
-
-            <div className="space-y-4">
-              <label className="block text-sm font-bold text-gray-700">地域</label>
-              <div className="flex flex-wrap gap-2">
-                {['全国', '関東', '関西', '中部', '九州', '北海道', '東北', '中国', '四国'].map(r => (
-                  <button
-                    key={r}
-                    onClick={() => {
-                      const current = formData.targeting.regions;
-                      if (r === '全国') {
-                        setFormData(prev => ({ ...prev, targeting: { ...prev.targeting, regions: ['全国'] } }));
-                      } else {
-                        const filtered = current.filter(x => x !== '全国');
-                        const next = filtered.includes(r) ? filtered.filter(x => x !== r) : [...filtered, r];
-                        setFormData(prev => ({ ...prev, targeting: { ...prev.targeting, regions: next.length === 0 ? ['全国'] : next } }));
-                      }
-                    }}
-                    className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${
-                      formData.targeting.regions.includes(r)
-                        ? 'bg-black text-white shadow-md'
-                        : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
-                    }`}
-                  >
-                    {r}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="p-6 bg-blue-50 rounded-2xl border border-blue-100 flex gap-4">
-              <div className="w-10 h-10 bg-blue-100 rounded-xl flex items-center justify-center shrink-0">
-                <Zap size={20} className="text-blue-600" />
-              </div>
-              <div>
-                <h5 className="text-sm font-bold text-blue-900 mb-1">AIターゲティング予測</h5>
-                <p className="text-xs text-blue-700 leading-relaxed">
-                  {formData.industry}の業界データに基づくと、
-                  {formData.targeting.age.includes('all') ? '幅広い年齢層' : formData.targeting.age.join('・')}
-                  への配信が最も効率的です。特に{formData.targeting.regions.includes('全国') ? '都市部' : '選択された地域'}
-                  での獲得単価が安定する傾向にあります。
-                </p>
-              </div>
-            </div>
-
-            <div className="space-y-4 pt-4 border-t border-gray-100">
+            <div className="bg-white border border-gray-100 rounded-3xl shadow-sm p-6 space-y-4">
               <label className="block text-sm font-bold text-gray-700">自動配信設定</label>
               <div className="flex items-center gap-4">
                 <button
+                  type="button"
                   onClick={() => setFormData(prev => ({ ...prev, autoStart: true }))}
                   className={`flex-1 p-4 rounded-2xl border-2 transition-all flex flex-col gap-1 ${
-                    formData.autoStart 
-                      ? 'border-black bg-gray-50' 
+                    formData.autoStart
+                      ? 'border-black bg-gray-50'
                       : 'border-gray-100 bg-white hover:border-gray-200'
                   }`}
                 >
@@ -10099,10 +9935,11 @@ function NewCampaignWizard({
                   <p className="text-[10px] text-gray-500 text-left">審査完了後、AIが最適なタイミングで自動的に配信を開始します。</p>
                 </button>
                 <button
+                  type="button"
                   onClick={() => setFormData(prev => ({ ...prev, autoStart: false }))}
                   className={`flex-1 p-4 rounded-2xl border-2 transition-all flex flex-col gap-1 ${
-                    !formData.autoStart 
-                      ? 'border-black bg-gray-50' 
+                    !formData.autoStart
+                      ? 'border-black bg-gray-50'
                       : 'border-gray-100 bg-white hover:border-gray-200'
                   }`}
                 >
@@ -10113,33 +9950,6 @@ function NewCampaignWizard({
                   <p className="text-[10px] text-gray-500 text-left">審査完了時に通知のみを行い、配信開始は手動で行います。</p>
                 </button>
               </div>
-            </div>
-
-            <div className="space-y-4 pt-4 border-t border-gray-100">
-              <label className="block text-sm font-bold text-gray-700">配信対象媒体</label>
-              <div className="flex flex-wrap gap-2">
-                {plan.platforms.map(p => (
-                  <button
-                    key={p}
-                    onClick={() => {
-                      const current = formData.platforms;
-                      const next = current.includes(p) ? current.filter(x => x !== p) : [...current, p];
-                      if (next.length > 0) {
-                        setFormData(prev => ({ ...prev, platforms: next }));
-                      }
-                    }}
-                    className={`px-3 py-1.5 border rounded-xl text-[10px] font-bold transition-all flex items-center gap-2 ${
-                      formData.platforms.includes(p)
-                        ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
-                        : 'bg-gray-50 border-gray-200 text-gray-400 hover:bg-gray-100'
-                    }`}
-                  >
-                    <CheckCircle2 size={12} className={formData.platforms.includes(p) ? 'text-emerald-500' : 'text-gray-300'} />
-                    {PLATFORM_LABELS[p]}
-                  </button>
-                ))}
-              </div>
-              <p className="text-[10px] text-gray-400">※配信したい媒体を選択してください。現在のプラン（{plan.name}）で利用可能な媒体が表示されています。</p>
             </div>
           </div>
         )}
@@ -10264,7 +10074,7 @@ function NewCampaignWizard({
             </>
           ) : (
             <>
-              {currentStepInfo.type === 'targeting' ? 'AI審査へ' : currentStepInfo.type === 'review' ? '入稿' : '次に進む'}
+              {wizardSteps[step]?.type === 'review' ? 'AI審査へ' : currentStepInfo.type === 'review' ? '入稿' : '次に進む'}
               <ChevronRight size={18} />
             </>
           )}

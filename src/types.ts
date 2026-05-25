@@ -506,3 +506,62 @@ export interface PlatformSpec {
   badgeBg: string;
   fields: PlatformField[];
 }
+
+// ── ターゲット設定（ad-campaign-studio から移植） ──────────
+export type TargetGender = 'all' | 'male' | 'female';
+export type TargetDevice = 'pc' | 'smartphone' | 'both';
+export type TargetRegionType = 'nationwide' | 'prefecture';
+
+export interface PlatformTargetDetail {
+  // Google検索
+  matchType?: 'exact' | 'phrase' | 'broad';
+  bidStrategy?: 'maximize_clicks' | 'target_cpa' | 'target_roas';
+  targetCpa?: string;
+  targetRoas?: string;
+  // GDN
+  audiences?: string[];
+  // Meta
+  placements?: string[];
+  campaignObjective?: 'awareness' | 'traffic' | 'conversion';
+  optimizationEvent?: string;
+  // Yahoo!
+  matchTypes?: string[];
+  yahooBidStrategy?: 'maximize_clicks' | 'target_cpa';
+  yahooTargetCpa?: string;
+  // LINE
+  linePlacements?: string[];
+  lineFormats?: string[];
+  // X
+  xPlacements?: string[];
+  xObjective?: 'reach' | 'engagement' | 'followers' | 'website_visit';
+}
+
+export interface TargetInfo {
+  gender: TargetGender;
+  ageGroups: string[];
+  region: TargetRegionType;
+  prefectures: string[];
+  device: TargetDevice;
+  platformDetails: Partial<Record<PlatformType, PlatformTargetDetail>>;
+  keywords: string[];
+  keywordMatchType: 'exact' | 'phrase' | 'broad';
+}
+
+export const DEFAULT_TARGET_INFO: TargetInfo = {
+  gender: 'all',
+  ageGroups: [],
+  region: 'nationwide',
+  prefectures: [],
+  device: 'both',
+  platformDetails: {},
+  keywords: [],
+  keywordMatchType: 'phrase',
+};
+
+// AIが提案するキーワードの情報
+export interface KeywordSuggestion {
+  keyword: string;
+  volume?: 'high' | 'medium' | 'low';
+  competition?: 'high' | 'medium' | 'low';
+  reason?: string;
+}
