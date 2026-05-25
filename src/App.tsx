@@ -9787,12 +9787,9 @@ function NewCampaignWizard({
                           <div className={`aspect-video bg-white rounded-xl border border-gray-200 overflow-hidden relative group ${type === BannerType.Vertical ? 'aspect-[9/16] max-h-[250px] mx-auto' : ''}`}>
                             {banner ? (
                               <div className="relative w-full h-full group">
-                                <BannerPreview 
+                                <BannerPreview
                                   backgroundUrl={banner.url}
                                   type={banner.type}
-                                  preset={banner.preset}
-                                  headline={banner.headline}
-                                  cta={banner.cta}
                                   className="w-full h-full"
                                 />
                                 <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">

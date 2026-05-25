@@ -445,12 +445,9 @@ function PreviewRenderer({ platform, content, selectedBannerUrl }: { platform: P
     
     if (banner) {
       return (
-        <BannerPreview 
+        <BannerPreview
           backgroundUrl={banner.url}
           type={banner.type}
-          preset={banner.preset}
-          headline={banner.headline}
-          cta={banner.cta}
           className="w-full h-full"
         />
       );
