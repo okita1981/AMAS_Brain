@@ -475,3 +475,34 @@ export interface WalletState {
   monthlyUsage: UsageMetrics;
   paymentMethods?: PaymentMethod[];
 }
+
+// ── 媒体スペック（ad-campaign-studio から移植） ──────────
+// 既存の PlatformType（GoogleSearch 等 PascalCase）とは別名前空間。
+// 入稿仕様（文字数・本数等）の定義に特化。
+export type PlatformSpecKey =
+  | 'google_ads'
+  | 'google_display'
+  | 'meta'
+  | 'yahoo_search'
+  | 'line_ads'
+  | 'x_ads';
+
+export interface PlatformField {
+  key: string;
+  label: string;
+  maxChars: number;
+  maxCount: number;
+  isList: boolean;
+  countMethod: 'simple' | 'jp_double' | 'half_width';
+  note?: string;
+  isTextarea?: boolean;
+}
+
+export interface PlatformSpec {
+  key: PlatformSpecKey;
+  displayName: string;
+  shortName: string;
+  color: string;
+  badgeBg: string;
+  fields: PlatformField[];
+}
