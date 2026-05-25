@@ -1323,3 +1323,99 @@ export async function getDraft(id: string): Promise<Draft> {
 export async function deleteDraft(id: string): Promise<void> {
   await draftFetch<void>(`/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
+
+// ── Export (CSV / 直接入稿) ──────────────────────────────────────
+// バックエンド /api/export/* を呼ぶラッパー。
+// CSV出力は媒体ごとのフォーマット (Google Ads Editor / Meta Ads Manager / 等) を
+// サーバー側で生成し、テキスト本文として返す。フロントは Blob 化して順次DLする。
+
+export interface ExportUtmSettings {
+  enabled: boolean;
+  medium?: string;
+  campaign?: string;
+  content?: string;
+  term?: string;
+}
+
+export interface ExportPayload {
+  campaignName: string;
+  productName?: string;
+  adGroupName?: string;
+  landingPageUrl: string;
+  path1?: string;
+  path2?: string;
+  platforms: PlatformType[];
+  headlines: string[];
+  longHeadline?: string;
+  descriptions: string[];
+  primaryText?: string;
+  keywords?: string[];
+  matchType?: 'exact' | 'phrase' | 'broad';
+  utm?: ExportUtmSettings;
+}
+
+export interface ExportFile {
+  platform: string;
+  filename: string;
+  content: string;
+}
+
+export interface SubmitResult {
+  platform: string;
+  platformLabel?: string;
+  success: boolean;
+  mode: 'mock' | 'production';
+  externalId?: string;
+  message?: string;
+}
+
+export async function exportToCsv(payload: ExportPayload): Promise<ExportFile[]> {
+  const response = await fetch("/api/export/csv", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    let message = `Failed to export CSV (HTTP ${response.status})`;
+    try {
+      const err = await response.json();
+      message = err.error || message;
+    } catch {}
+    throw new Error(message);
+  }
+  const data = await response.json();
+  return Array.isArray(data?.files) ? data.files : [];
+}
+
+export async function submitToMedia(payload: ExportPayload): Promise<SubmitResult[]> {
+  const response = await fetch("/api/export/submit", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    let message = `Failed to submit to media (HTTP ${response.status})`;
+    try {
+      const err = await response.json();
+      message = err.error || message;
+    } catch {}
+    throw new Error(message);
+  }
+  const data = await response.json();
+  return Array.isArray(data?.results) ? data.results : [];
+}
+
+// ブラウザでCSVファイルをダウンロードさせるユーティリティ。
+// content は BOM 込みでサーバーから来るので、そのまま Blob 化する。
+export function downloadExportFile(file: ExportFile): void {
+  const blob = new Blob([file.content], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = file.filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  // revoke は次フレームに遅延（Chromeで即時revokeするとダウンロードが破棄される）
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}

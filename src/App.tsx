@@ -186,6 +186,7 @@ import MediaSimulator from './components/MediaSimulator';
 import BannerPreview from './components/BannerPreview';
 import Wallet from './components/Wallet';
 import StepTarget from './components/steps/StepTarget';
+import StepExport from './components/steps/StepExport';
 import DraftsPage from './components/DraftsPage';
 
 
@@ -8863,6 +8864,7 @@ function NewCampaignWizard({
     }
 
     steps.push({ id: 5, label: 'AI審査', type: 'review' });
+    steps.push({ id: 6, label: '出力', type: 'export' });
 
     return steps;
   };
@@ -10150,6 +10152,31 @@ function NewCampaignWizard({
             </div>
           </div>
         )}
+
+        {currentStepInfo.type === 'export' && (
+          <StepExport
+            campaignName={formData.name || 'campaign'}
+            productName={formData.name}
+            landingPageUrl={formData.landingPageUrl}
+            platforms={formData.platforms}
+            headlines={(() => {
+              const merged = [
+                ...selectedHeadlines,
+                ...aiSuggestions.headlines.map(h => h.text),
+              ];
+              if (formData.headline) merged.unshift(formData.headline);
+              return [...new Set(merged.filter(Boolean))];
+            })()}
+            descriptions={(() => {
+              const merged = aiSuggestions.descriptions.map(d => d.text);
+              if (formData.description) merged.unshift(formData.description);
+              return [...new Set(merged.filter(Boolean))];
+            })()}
+            primaryText={formData.body || formData.description || aiSuggestions.descriptions[0]?.text}
+            keywords={selectedKeywords}
+            matchType={targetInfo.keywordMatchType}
+          />
+        )}
       </div>
 
       {/* Footer */}
@@ -10196,7 +10223,13 @@ function NewCampaignWizard({
             </>
           ) : (
             <>
-              {wizardSteps[step]?.type === 'review' ? 'AI審査へ' : currentStepInfo.type === 'review' ? '入稿' : '次に進む'}
+              {(() => {
+                const nextType = wizardSteps[step]?.type;
+                if (nextType === 'review') return 'AI審査へ';
+                if (nextType === 'export') return '出力へ';
+                if (currentStepInfo.type === 'export') return '完了して入稿';
+                return '次に進む';
+              })()}
               <ChevronRight size={18} />
             </>
           )}
