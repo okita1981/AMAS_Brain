@@ -2,7 +2,7 @@
 // ad-campaign-studio (CLAUDE スイッチメディア配下) の Step3Target.tsx を
 // AMAS のライトテーマ Tailwind に合わせて移植したもの。
 import React, { useState } from 'react';
-import { ChevronDown, ChevronRight, Plus, Sparkles, X } from 'lucide-react';
+import { BarChart3, ChevronDown, ChevronRight, Loader2, Plus, Sparkles, X } from 'lucide-react';
 import type {
   PlatformType,
   TargetInfo,
@@ -10,7 +10,9 @@ import type {
   TargetDevice,
   TargetRegionType,
   PlatformTargetDetail,
+  KeywordSuggestion,
 } from '../../types';
+import { estimateKeywordVolume } from '../../services/aiService';
 
 // ── 都道府県（地方ブロック別） ────────────────
 const PREFECTURE_GROUPS = [
@@ -379,6 +381,25 @@ function PlatformDetailExpander({
   );
 }
 
+// ── ボリュームバッジ ──────────────────────────
+const VOLUME_LABEL: Record<KeywordSuggestion['volume'], string> = { high: '高', medium: '中', low: '低' };
+const VOLUME_STYLE: Record<KeywordSuggestion['volume'], string> = {
+  high:   'bg-emerald-100 text-emerald-700 border-emerald-200',
+  medium: 'bg-amber-100 text-amber-700 border-amber-200',
+  low:    'bg-gray-100 text-gray-600 border-gray-200',
+};
+const COMPETITION_STYLE: Record<KeywordSuggestion['competition'], string> = {
+  high:   'bg-red-100 text-red-700 border-red-200',
+  medium: 'bg-amber-100 text-amber-700 border-amber-200',
+  low:    'bg-emerald-100 text-emerald-700 border-emerald-200',
+};
+const TREND_ICON: Record<KeywordSuggestion['trend'], string> = { up: '↑', stable: '→', down: '↓' };
+const TREND_STYLE: Record<KeywordSuggestion['trend'], string> = {
+  up:     'text-emerald-600',
+  stable: 'text-gray-500',
+  down:   'text-red-600',
+};
+
 // ── キーワードセクション ──────────────────────
 function KeywordSection({
   targetInfo,
@@ -386,15 +407,37 @@ function KeywordSection({
   selectedKeywords,
   setSelectedKeywords,
   suggestedKeywords,
+  industry,
+  targetUrl,
 }: {
   targetInfo: TargetInfo;
   setTargetInfo: React.Dispatch<React.SetStateAction<TargetInfo>>;
   selectedKeywords: string[];
   setSelectedKeywords: React.Dispatch<React.SetStateAction<string[]>>;
   suggestedKeywords: string[];
+  industry: string;
+  targetUrl?: string;
 }) {
   const [input, setInput] = useState('');
+  const [volumeLoading, setVolumeLoading] = useState(false);
+  const [volumeResults, setVolumeResults] = useState<KeywordSuggestion[] | null>(null);
+  const [volumeError, setVolumeError] = useState<string | null>(null);
   const MAX_KEYWORDS = 100;
+
+  const handleEstimateVolume = async () => {
+    if (selectedKeywords.length === 0) return;
+    setVolumeLoading(true);
+    setVolumeError(null);
+    try {
+      const items = await estimateKeywordVolume(selectedKeywords, industry, targetUrl);
+      setVolumeResults(items);
+    } catch (err: any) {
+      setVolumeError(err?.message || 'ボリューム推定に失敗しました');
+      setVolumeResults(null);
+    } finally {
+      setVolumeLoading(false);
+    }
+  };
 
   const addKeyword = (kw: string) => {
     const trimmed = kw.trim();
@@ -479,6 +522,71 @@ function KeywordSection({
         </div>
       )}
 
+      {selectedKeywords.length > 0 && (
+        <div className="pt-4 border-t border-gray-100">
+          <button
+            type="button"
+            onClick={handleEstimateVolume}
+            disabled={volumeLoading}
+            className="flex items-center gap-2 text-xs font-bold px-4 py-2 rounded-xl border border-blue-200 text-blue-700 bg-blue-50 hover:bg-blue-100 transition-colors disabled:opacity-40"
+          >
+            {volumeLoading ? (
+              <>
+                <Loader2 size={14} className="animate-spin" />
+                Geminiが分析中…
+              </>
+            ) : (
+              <>
+                <BarChart3 size={14} />
+                ボリューム推定
+              </>
+            )}
+          </button>
+          {volumeError && (
+            <p className="mt-2 text-xs text-red-600">{volumeError}</p>
+          )}
+          {volumeResults && volumeResults.length > 0 && (
+            <div className="mt-3 overflow-x-auto rounded-2xl border border-gray-100">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="bg-gray-50 border-b border-gray-100">
+                    <th className="text-left px-3 py-2 text-gray-500 font-bold">キーワード</th>
+                    <th className="text-center px-3 py-2 text-gray-500 font-bold whitespace-nowrap">ボリューム</th>
+                    <th className="text-center px-3 py-2 text-gray-500 font-bold">競合</th>
+                    <th className="text-center px-3 py-2 text-gray-500 font-bold">トレンド</th>
+                    <th className="text-left px-3 py-2 text-gray-500 font-bold">推定根拠</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {volumeResults.map((it, i) => (
+                    <tr key={i} className={`border-b border-gray-50 last:border-b-0 ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50/40'}`}>
+                      <td className="px-3 py-2 text-gray-800 font-medium">{it.keyword}</td>
+                      <td className="px-3 py-2 text-center">
+                        <span className={`px-2 py-0.5 rounded-full border text-[10px] font-bold ${VOLUME_STYLE[it.volume]}`}>
+                          {VOLUME_LABEL[it.volume]}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2 text-center">
+                        <span className={`px-2 py-0.5 rounded-full border text-[10px] font-bold ${COMPETITION_STYLE[it.competition]}`}>
+                          {VOLUME_LABEL[it.competition]}
+                        </span>
+                      </td>
+                      <td className={`px-3 py-2 text-center font-bold ${TREND_STYLE[it.trend]}`}>
+                        {TREND_ICON[it.trend]}
+                      </td>
+                      <td className="px-3 py-2 text-gray-500">{it.reason}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <p className="px-3 py-2 text-[10px] text-gray-400 bg-gray-50">
+                ※ Geminiによる推定値です。実際の数値はGoogleキーワードプランナー等でご確認ください。
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+
       {remainingSuggestions.length > 0 && (
         <div className="pt-4 border-t border-gray-100">
           <div className="flex items-center gap-2 mb-3">
@@ -514,6 +622,8 @@ export interface StepTargetProps {
   setSelectedKeywords: React.Dispatch<React.SetStateAction<string[]>>;
   suggestedKeywords?: string[];
   platformLabels: Record<PlatformType, string>;
+  industry: string;
+  targetUrl?: string;
 }
 
 export default function StepTarget({
@@ -524,6 +634,8 @@ export default function StepTarget({
   setSelectedKeywords,
   suggestedKeywords = [],
   platformLabels,
+  industry,
+  targetUrl,
 }: StepTargetProps) {
   const update = <K extends keyof TargetInfo>(key: K, val: TargetInfo[K]) =>
     setTargetInfo(prev => ({ ...prev, [key]: val }));
@@ -736,6 +848,8 @@ export default function StepTarget({
           selectedKeywords={selectedKeywords}
           setSelectedKeywords={setSelectedKeywords}
           suggestedKeywords={suggestedKeywords}
+          industry={industry}
+          targetUrl={targetUrl}
         />
       )}
     </div>

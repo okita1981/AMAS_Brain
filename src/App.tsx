@@ -9914,6 +9914,8 @@ function NewCampaignWizard({
               setSelectedKeywords={setSelectedKeywords}
               suggestedKeywords={aiSuggestions.keywords}
               platformLabels={PLATFORM_LABELS}
+              industry={formData.industry}
+              targetUrl={formData.landingPageUrl}
             />
 
             <div className="bg-white border border-gray-100 rounded-3xl shadow-sm p-6 space-y-4">

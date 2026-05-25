@@ -558,10 +558,11 @@ export const DEFAULT_TARGET_INFO: TargetInfo = {
   keywordMatchType: 'phrase',
 };
 
-// AIが提案するキーワードの情報
+// AIが推定するキーワードのボリューム・競合・トレンド情報
 export interface KeywordSuggestion {
   keyword: string;
-  volume?: 'high' | 'medium' | 'low';
-  competition?: 'high' | 'medium' | 'low';
-  reason?: string;
+  volume: 'high' | 'medium' | 'low';
+  competition: 'high' | 'medium' | 'low';
+  trend: 'up' | 'stable' | 'down';
+  reason: string;
 }

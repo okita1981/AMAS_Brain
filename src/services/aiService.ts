@@ -1,5 +1,5 @@
 import { Type } from "@google/genai";
-import { AgentType, MarketingTask, IndustryType, StrategicPlan, AIAdvice, PlatformType, AdContent, PlanType, AdCensorshipResult, BannerDesignPreset, BannerType, Campaign } from "../types";
+import { AgentType, MarketingTask, IndustryType, StrategicPlan, AIAdvice, PlatformType, AdContent, PlanType, AdCensorshipResult, BannerDesignPreset, BannerType, Campaign, KeywordSuggestion } from "../types";
 
 // Gemini is now invoked via the backend proxy at /api/ai/gemini so the API key
 // never reaches the browser. `Type` from @google/genai is just an enum of plain
@@ -1226,4 +1226,51 @@ export async function saveInsight(
   insight: string
 ): Promise<{ success: boolean; id: string }> {
   return postWorkflow<{ success: boolean; id: string }>("learn", { userId, insight });
+}
+
+// ── Keyword Planning ─────────────────────────────────────────────
+// バックエンド /api/keywords/* を呼ぶシンプルなラッパー。
+// suggestKeywords は GPT-4o(主)/Gemini(副)、estimateKeywordVolume は Gemini。
+
+async function postKeywordApi<T>(path: "suggest" | "volume", body: unknown): Promise<T> {
+  const response = await fetch(`/api/keywords/${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    let message = `Failed to call /api/keywords/${path} (HTTP ${response.status})`;
+    try {
+      const err = await response.json();
+      message = err.error || message;
+    } catch {}
+    throw new Error(message);
+  }
+  return response.json() as Promise<T>;
+}
+
+export async function suggestKeywords(
+  industry: string,
+  targetUrl: string,
+  platforms: string[]
+): Promise<string[]> {
+  const data = await postKeywordApi<{ keywords: string[] }>("suggest", {
+    industry,
+    targetUrl: targetUrl || undefined,
+    platforms,
+  });
+  return Array.isArray(data?.keywords) ? data.keywords : [];
+}
+
+export async function estimateKeywordVolume(
+  keywords: string[],
+  industry: string,
+  targetUrl?: string,
+): Promise<KeywordSuggestion[]> {
+  const data = await postKeywordApi<{ items: KeywordSuggestion[] }>("volume", {
+    keywords,
+    industry,
+    targetUrl: targetUrl || undefined,
+  });
+  return Array.isArray(data?.items) ? data.items : [];
 }

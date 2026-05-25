@@ -968,6 +968,220 @@ ${totals.count}件`;
     }
   });
 
+  // ===============================================================
+  // Keyword Planning Endpoints
+  // ===============================================================
+
+  // 5) POST /api/keywords/suggest
+  // 業種 / LP URL / 配信媒体 をもとに、GPT-4o (主) で検索広告向けキーワードを提案する。
+  // 失敗時は Gemini にフォールバック。出力は { keywords: string[] }。
+  app.post("/api/keywords/suggest", async (req, res) => {
+    const { industry, targetUrl, platforms, keywords: seedKeywords } = req.body || {};
+    if (typeof industry !== "string" || industry.trim().length === 0) {
+      return res.status(400).json({
+        error: "Field 'industry' is required and must be a non-empty string.",
+        code: "BAD_REQUEST",
+      });
+    }
+
+    const seedHint = Array.isArray(seedKeywords) && seedKeywords.length > 0
+      ? `\n【既存キーワード（重複避ける）】${seedKeywords.join("、")}`
+      : "";
+    const urlHint = typeof targetUrl === "string" && targetUrl
+      ? `\n【LP/ターゲットURL】${targetUrl}`
+      : "";
+    const platformHint = Array.isArray(platforms) && platforms.length > 0
+      ? `\n【配信媒体】${platforms.join("、")}`
+      : "";
+
+    const userPrompt = `以下の情報をもとに、Google検索広告 / Yahoo!検索広告向けのキーワード候補を15件提案してください。
+
+【業種】${industry}${urlHint}${platformHint}${seedHint}
+
+条件：
+- 実際の検索キーワードとして使われそうな自然な表現
+- 2〜5語程度（短すぎず長すぎない）
+- ブランド指名・一般・課題系ワードをバランスよく
+- 日本語キーワードを中心に
+
+JSON形式のみで出力（説明や前置きは不要）：
+{ "keywords": ["キーワード1", "キーワード2", ...] }`;
+
+    // GPT-4o 経由でJSONを取得
+    async function viaGpt(): Promise<string[]> {
+      const apiKey = process.env.OPENAI_API_KEY;
+      if (!apiKey) throw new Error("OPENAI_API_KEY not configured");
+      const apiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "gpt-4o",
+          messages: [
+            { role: "system", content: "あなたは検索広告のキーワードプランナーです。JSON形式のみで応答してください。" },
+            { role: "user", content: userPrompt },
+          ],
+          temperature: 0.6,
+          response_format: { type: "json_object" },
+        }),
+      });
+      if (!apiResponse.ok) throw new Error(`OpenAI ${apiResponse.status}`);
+      const data = await apiResponse.json();
+      const text: string = data?.choices?.[0]?.message?.content || "";
+      const parsed = parseJsonLoose<{ keywords?: unknown }>(text, {});
+      const list = Array.isArray(parsed.keywords) ? parsed.keywords : [];
+      return list.filter((k: unknown): k is string => typeof k === "string" && k.trim().length > 0).slice(0, 15);
+    }
+
+    // Gemini フォールバック
+    async function viaGemini(): Promise<string[]> {
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey) throw new Error("GEMINI_API_KEY not configured");
+      const ai = new GoogleGenAI({ apiKey });
+      const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash-preview-05-20",
+        contents: userPrompt,
+        config: { responseMimeType: "application/json" },
+      });
+      const parsed = parseJsonLoose<{ keywords?: unknown }>(response.text || "", {});
+      const list = Array.isArray(parsed.keywords) ? parsed.keywords : [];
+      return list.filter((k: unknown): k is string => typeof k === "string" && k.trim().length > 0).slice(0, 15);
+    }
+
+    try {
+      let result: string[];
+      try {
+        result = await viaGpt();
+      } catch (err: any) {
+        console.warn("[/api/keywords/suggest] GPT-4o failed, falling back to Gemini:", err?.message);
+        result = await viaGemini();
+      }
+      res.json({ keywords: result });
+    } catch (error: any) {
+      console.error("[/api/keywords/suggest] error:", error);
+      res.status(500).json({
+        error: error?.message || "Failed to suggest keywords",
+        code: "KEYWORD_SUGGEST_ERROR",
+      });
+    }
+  });
+
+  // 6) POST /api/keywords/volume
+  // Gemini を使って、各キーワードのボリューム/競合/トレンドを high|medium|low / up|stable|down で推定する。
+  // 入力: { keywords: string[], industry: string, targetUrl?: string }
+  // 出力: { items: Array<{ keyword, volume, competition, trend, reason }> }
+  app.post("/api/keywords/volume", async (req, res) => {
+    const { keywords, industry, targetUrl } = req.body || {};
+    if (!Array.isArray(keywords) || keywords.length === 0) {
+      return res.status(400).json({
+        error: "Field 'keywords' is required and must be a non-empty array.",
+        code: "BAD_REQUEST",
+      });
+    }
+    if (typeof industry !== "string") {
+      return res.status(400).json({
+        error: "Field 'industry' is required and must be a string.",
+        code: "BAD_REQUEST",
+      });
+    }
+
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      return res.status(500).json({
+        error: "GEMINI_API_KEY is not configured on the server.",
+        code: "GEMINI_KEY_MISSING",
+      });
+    }
+
+    const cleanKeywords = keywords
+      .filter((k: unknown): k is string => typeof k === "string" && k.trim().length > 0)
+      .slice(0, 50);
+    if (cleanKeywords.length === 0) {
+      return res.status(400).json({
+        error: "No valid keyword strings in 'keywords'.",
+        code: "BAD_REQUEST",
+      });
+    }
+
+    const urlHint = typeof targetUrl === "string" && targetUrl
+      ? `\n【LP/ターゲットURL】${targetUrl}`
+      : "";
+
+    const prompt = `あなたはデジタル広告のキーワードプランニング専門家です。
+以下のキーワード一覧について、月間検索ボリューム・競合度・直近のトレンドを推定し、JSONで返してください。
+
+【業種】${industry || "指定なし"}${urlHint}
+
+【キーワード一覧】
+${cleanKeywords.map((k) => `- ${k}`).join("\n")}
+
+【分類基準】
+- volume:
+  - high: 月間1万回以上の検索想定（悩み系・大カテゴリ系など）
+  - medium: 月間1千〜1万回の検索想定（比較・検討系など）
+  - low: 月間1千回未満の検索想定（指名系・ニッチ系など）
+- competition:
+  - high: 大手競合多数・CPC高騰しがち
+  - medium: 中規模競合
+  - low: ニッチ・競合少
+- trend:
+  - up: 直近1年で検索量が増加傾向
+  - stable: 横ばい
+  - down: 減少傾向
+- reason: 上記分類の根拠を40文字以内で簡潔に
+
+出力はJSONのみ（前置き不要）：
+{
+  "items": [
+    { "keyword": "キーワード文字列", "volume": "high|medium|low", "competition": "high|medium|low", "trend": "up|stable|down", "reason": "根拠40文字以内" }
+  ]
+}`;
+
+    try {
+      const ai = new GoogleGenAI({ apiKey });
+      const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash-preview-05-20",
+        contents: prompt,
+        config: { responseMimeType: "application/json" },
+      });
+      const raw = response.text || "";
+      const parsed = parseJsonLoose<{ items?: unknown }>(raw, {});
+      const itemsRaw = Array.isArray(parsed.items) ? parsed.items : [];
+
+      // 型安全に正規化。LLMが ranges を返してきても 'high'|'medium'|'low' に丸める。
+      const VOLUME = new Set(["high", "medium", "low"]);
+      const TREND = new Set(["up", "stable", "down"]);
+      const items = itemsRaw
+        .map((it: any) => {
+          const keyword = typeof it?.keyword === "string" ? it.keyword : "";
+          const volume = VOLUME.has(it?.volume) ? it.volume : "medium";
+          const competition = VOLUME.has(it?.competition) ? it.competition : "medium";
+          const trend = TREND.has(it?.trend) ? it.trend : "stable";
+          const reason = typeof it?.reason === "string" ? it.reason : "";
+          return keyword ? { keyword, volume, competition, trend, reason } : null;
+        })
+        .filter((x: unknown): x is { keyword: string; volume: string; competition: string; trend: string; reason: string } => x !== null);
+
+      res.json({ items });
+    } catch (error: any) {
+      const upstreamStatus =
+        error?.status || error?.response?.status || error?.cause?.status || null;
+      const upstreamMessage =
+        error?.response?.data?.error?.message || error?.error?.message || error?.message || "Unknown upstream error";
+      console.error("[/api/keywords/volume] Gemini API Error:", {
+        message: upstreamMessage,
+        status: upstreamStatus,
+      });
+      const proxiedStatus = typeof upstreamStatus === "number" && upstreamStatus >= 400 && upstreamStatus < 600
+        ? upstreamStatus
+        : 502;
+      res.status(proxiedStatus).json({
+        error: upstreamMessage,
+        code: "KEYWORD_VOLUME_UPSTREAM_ERROR",
+        upstream: { status: upstreamStatus },
+      });
+    }
+  });
+
   // Health check
   app.get("/api/health", (req, res) => {
     res.json({ status: "ok" });
