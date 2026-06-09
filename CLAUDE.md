@@ -34,3 +34,4 @@
 - デプロイ先の変更検討（Aisleサイト内への展開）
 - mureoワークフローのUI組み込み
 - バナー生成プロンプトの品質改善
+-【課題】KWボリューム推定をGemini推定からGoogle Ads API（generateKeywordIdeas）の実データに移行する（Google Ads API接続後に対応）
