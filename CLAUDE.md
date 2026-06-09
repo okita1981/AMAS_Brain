@@ -10,9 +10,11 @@
 
 ## 現在のアーキテクチャ
 - フロントエンド: React 18 + Vite
-- バックエンド: Express + TypeScript (server.ts)
-- データベース: Firebase Firestore
-- デプロイ: GitHub → Cloud Run自動デプロイ (AMAS Projectプロジェクト, us-west1)
+- バックエンド: Vercel Functions (api/*.ts, @vercel/node)
+- 共通モジュール: lib/firebase.ts, lib/stripe.ts, lib/claude.ts, lib/csv.ts, lib/http.ts
+- データベース: Firebase Firestore（サーバ側は FIREBASE_SERVICE_ACCOUNT_KEY 環境変数で初期化）
+- ストレージ: Firebase Storage（バナー画像）
+- デプロイ: GitHub → Vercel自動デプロイ
 
 ## AI役割分担
 - Claude (claude-sonnet-4-5): 戦略立案・分析・daily-check・budget-rebalance・weekly-report
@@ -20,12 +22,15 @@
 - GPT Image 2 (gpt-image-1): バナー画像生成（日本語テキスト込み一発生成）
 - Gemini (gemini-2.5-flash): フォールバック
 
-## 環境変数（Cloud Run app-containerに設定済み）
+## 環境変数（Vercel プロジェクトに設定）
 - OPENAI_API_KEY
 - ANTHROPIC_API_KEY
 - GEMINI_API_KEY
 - STRIPE_SECRET_KEY
 - STRIPE_WEBHOOK_SECRET
+- FIREBASE_SERVICE_ACCOUNT_KEY（サービスアカウントJSON全体を文字列で）
+- FIREBASE_STORAGE_BUCKET（任意。未設定時は `<project_id>.appspot.com`）
+- APP_URL（OAuth/Stripe コールバックURLの基底）
 
 ## 次回やること
 - バナーのテキスト二重表示の修正
