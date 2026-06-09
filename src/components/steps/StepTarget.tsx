@@ -580,7 +580,7 @@ function KeywordSection({
                 </tbody>
               </table>
               <p className="px-3 py-2 text-[10px] text-gray-400 bg-gray-50">
-                ※ Geminiによる推定値です。実際の数値はGoogleキーワードプランナー等でご確認ください。
+                ※ AIによる相対的な目安です。高・中・低はあくまで参考値としてご活用ください。
               </p>
             </div>
           )}
