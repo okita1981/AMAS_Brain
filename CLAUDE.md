@@ -23,17 +23,37 @@
 - Gemini (gemini-2.5-flash): フォールバック
 
 ## 環境変数（Vercel プロジェクトに設定）
-- OPENAI_API_KEY
-- ANTHROPIC_API_KEY
-- GEMINI_API_KEY
+実コードが参照する必須14変数（+任意1）。
+
+### AI / LLM
+- OPENAI_API_KEY（コピー/バナー生成・KWサジェスト）
+- ANTHROPIC_API_KEY（戦略立案・分析・各種ワークフロー）
+- GEMINI_API_KEY（フォールバック生成・KWボリューム推定）
+
+### 決済（Stripe）
 - STRIPE_SECRET_KEY
 - STRIPE_WEBHOOK_SECRET
+
+### Firebase（サーバ側）
 - FIREBASE_SERVICE_ACCOUNT_KEY（サービスアカウントJSON全体を文字列で）
 - FIREBASE_STORAGE_BUCKET（任意。未設定時は `<project_id>.appspot.com`）
-- APP_URL（OAuth/Stripe コールバックURLの基底）
+
+### Google Ads API ※ベーシックアクセス審査中。本番接続まで**ダミー値でデプロイ**予定
+- GOOGLE_ADS_CLIENT_ID
+- GOOGLE_ADS_CLIENT_SECRET
+- GOOGLE_ADS_DEVELOPER_TOKEN
+- GOOGLE_ADS_REFRESH_TOKEN（審査通過後に取得）
+
+### Meta 広告 API ※現状未接続。接続まで**ダミー値でデプロイ**予定
+- META_APP_ID
+- META_APP_SECRET
+- META_ACCESS_TOKEN
+
+### アプリ基底URL
+- APP_URL（OAuth/Stripe コールバックURLの基底。Deploy後に確定URLへ更新）
 
 ## 次回やること
-- 【次回開始】Vercelに環境変数（OPENAI_API_KEY / ANTHROPIC_API_KEY / GEMINI_API_KEY / STRIPE_SECRET_KEY / STRIPE_WEBHOOK_SECRET / FIREBASE_SERVICE_ACCOUNT_KEY / APP_URL）を設定してDeployする
+- 【次回開始】環境変数（上記「環境変数」セクション参照）をVercelに設定してDeployする。Google Ads / Meta 系は審査中・未接続のためダミー値で登録
 - 各APIキーをAMAS専用に新規発行してから設定すること
 - バナーのテキスト二重表示の修正
 - claude-adsの組み込み検討
