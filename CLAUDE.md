@@ -33,6 +33,8 @@
 - APP_URL（OAuth/Stripe コールバックURLの基底）
 
 ## 次回やること
+- 【次回開始】Vercelに環境変数（OPENAI_API_KEY / ANTHROPIC_API_KEY / GEMINI_API_KEY / STRIPE_SECRET_KEY / STRIPE_WEBHOOK_SECRET / FIREBASE_SERVICE_ACCOUNT_KEY / APP_URL）を設定してDeployする
+- 各APIキーをAMAS専用に新規発行してから設定すること
 - バナーのテキスト二重表示の修正
 - claude-adsの組み込み検討
 - Geminiフォールバックの動作確認
