@@ -18,7 +18,7 @@
 - Claude (claude-sonnet-4-5): 戦略立案・分析・daily-check・budget-rebalance・weekly-report
 - GPT-4o: コピー生成・クリエイティブ生成
 - GPT Image 2 (gpt-image-1): バナー画像生成（日本語テキスト込み一発生成）
-- Gemini (gemini-2.5-flash-preview-05-20): フォールバック
+- Gemini (gemini-2.5-flash): フォールバック
 
 ## 環境変数（Cloud Run app-containerに設定済み）
 - OPENAI_API_KEY

@@ -1038,7 +1038,7 @@ JSON形式のみで出力（説明や前置きは不要）：
       if (!apiKey) throw new Error("GEMINI_API_KEY not configured");
       const ai = new GoogleGenAI({ apiKey });
       const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash-preview-05-20",
+        model: "gemini-2.5-flash",
         contents: userPrompt,
         config: { responseMimeType: "application/json" },
       });
@@ -1139,7 +1139,7 @@ ${cleanKeywords.map((k) => `- ${k}`).join("\n")}
     try {
       const ai = new GoogleGenAI({ apiKey });
       const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash-preview-05-20",
+        model: "gemini-2.5-flash",
         contents: prompt,
         config: { responseMimeType: "application/json" },
       });
@@ -1868,7 +1868,7 @@ ${cleanKeywords.map((k) => `- ${k}`).join("\n")}
     try {
       const ai = new GoogleGenAI({ apiKey: rawKey });
       const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash-preview-05-20",
+        model: "gemini-2.5-flash",
         contents: prompt,
         config: { responseMimeType: "application/json" },
       });
