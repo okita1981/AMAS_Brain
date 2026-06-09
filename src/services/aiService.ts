@@ -968,6 +968,61 @@ AMAS バナーデザイン・プランナー（コンセプト + コピーテキ
   return data.suggestions;
 }
 
+// Optional design context to bias the banner's visual direction toward the
+// advertiser's industry and audience. Keeps gpt-image-1 from defaulting to
+// Western faces or generic stock-photo compositions for Japanese campaigns.
+export interface BannerImageContext {
+  industry?: string;
+  businessDescription?: string;
+  targetGender?: string;          // 'all' | 'male' | 'female'
+  targetAgeGroups?: string[];     // e.g. ['10代', '20代'] from StepTarget
+  keywords?: string[];
+}
+
+// Maps a free-text industry label to a style direction. Substring match is
+// intentional — `systemSettings.industry` is free-form (e.g. "歯科クリニック").
+function resolveIndustryStyle(industry?: string): string {
+  const i = (industry || '').toLowerCase();
+  if (!i) {
+    return 'シンプル・プロフェッショナル・日本らしい清潔感のあるデザイン。';
+  }
+  if (/(it|ai|tech|テック|システム|ソフト|saas|dx|エンジニア)/i.test(industry || '')) {
+    return '洗練・モダン・ブルー系の配色・幾何学的パターン。人物を入れる場合はアジア系ビジネスパーソン、または人物なしの構成を優先。';
+  }
+  if (/(医療|歯科|クリニック|病院|内科|皮膚科|整形|ヘルスケア)/i.test(industry || '')) {
+    return '清潔感・白・水色を基調にした信頼感のあるデザイン。人物を入れる場合は笑顔の日本人を描写。';
+  }
+  if (/(飲食|食品|レストラン|カフェ|居酒屋|フード|スイーツ|料理)/i.test(industry || '')) {
+    return '温かみ・食欲を喚起する鮮やかな配色。料理や食材の写真風イメージを主役に据える。';
+  }
+  if (/(建設|塗装|工務店|リフォーム|建築|外壁|屋根)/i.test(industry || '')) {
+    return '職人感・現場感・信頼感を伝えるトーン。人物を入れる場合は日本人職人を描写。';
+  }
+  if (/(美容|エステ|サロン|脱毛|ネイル|ヘア|コスメ)/i.test(industry || '')) {
+    return '柔らかいトーン・ピンク系の配色・清潔感のあるデザイン。人物を入れる場合は日本人女性を描写。';
+  }
+  return 'シンプル・プロフェッショナル・日本らしい清潔感のあるデザイン。';
+}
+
+// Converts the target demographic into adjectives the image model can act on.
+function resolveTargetStyle(gender?: string, ageGroups?: string[]): string {
+  const notes: string[] = [];
+  if (gender === 'female') {
+    notes.push('女性向け: 柔らかいトーン・暖色系の配色を優先。');
+  } else if (gender === 'male') {
+    notes.push('男性向け: シャープでクールな配色・直線的な構図を優先。');
+  }
+  const ages = ageGroups || [];
+  const isYoung   = ages.some(a => a.includes('10代') || a.includes('20代'));
+  const isSenior  = ages.some(a => a.includes('50代') || a.includes('60代'));
+  if (isYoung && !isSenior) {
+    notes.push('若年層向け: トレンド感のある明るいビジュアルで親しみやすさを演出。');
+  } else if (isSenior && !isYoung) {
+    notes.push('シニア向け: 落ち着いた配色と信頼感のあるトーンを優先。');
+  }
+  return notes.join('\n');
+}
+
 // Generate the final banner image (background + rendered copy text) via GPT Image 2.
 // `copyText` is optional for backward compatibility; if provided, the text is baked
 // into the image by gpt-image-1 instead of being overlaid on the client.
@@ -975,7 +1030,8 @@ export async function generateBannerImage(
   prompt: string,
   aspectRatio: BannerType,
   copyText?: BannerCopyText,
-  preset: BannerDesignPreset | string = 'impact'
+  preset: BannerDesignPreset | string = 'impact',
+  context: BannerImageContext = {}
 ): Promise<string> {
   // Google / Meta standard banner sizes (the backend remaps to gpt-image-1 sizes).
   const sizeMap: Record<BannerType, string> = {
@@ -1051,11 +1107,33 @@ export async function generateBannerImage(
     "- Do NOT add any text beyond what is listed in the TEXT TO RENDER block.",
   ].join("\n");
 
+  // Compose the design-context block from the advertiser's industry / audience.
+  const industryStyle = resolveIndustryStyle(context.industry);
+  const targetStyle   = resolveTargetStyle(context.targetGender, context.targetAgeGroups);
+  const trimmedBiz    = (context.businessDescription || '').replace(/\s+/g, ' ').trim().slice(0, 100);
+  const topKeywords   = (context.keywords || []).filter(k => typeof k === 'string' && k.trim().length > 0).slice(0, 5);
+
+  const contextLines = [
+    'DESIGN CONTEXT (must shape color palette, mood and any depicted people):',
+    context.industry      ? `- 業種: ${context.industry}` : null,
+    `- 業種スタイル: ${industryStyle}`,
+    trimmedBiz            ? `- 商材/サービス要点: ${trimmedBiz}` : null,
+    context.targetGender  ? `- ターゲット性別: ${context.targetGender}` : null,
+    (context.targetAgeGroups && context.targetAgeGroups.length > 0)
+      ? `- ターゲット年齢層: ${context.targetAgeGroups.join(', ')}`
+      : null,
+    targetStyle           ? targetStyle : null,
+    topKeywords.length > 0 ? `- 訴求キーワード: ${topKeywords.join(', ')}` : null,
+    '- 人物を描写する場合は必ず日本人またはアジア系の容姿に統一する。該当する人物像が定まらない場合は人物なしの構成にする。欧米人・西洋系の顔立ちは使用しないこと。',
+  ].filter(Boolean).join('\n');
+
   // Compose the final prompt.
   let fullPrompt = `PROFESSIONAL ADVERTISEMENT BANNER
 
 BACKGROUND SCENE:
 ${prompt}
+
+${contextLines}
 
 ${qualityDirectives}
 

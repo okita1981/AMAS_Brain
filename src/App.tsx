@@ -8949,7 +8949,14 @@ function NewCampaignWizard({
         suggestion.backgroundPrompt,
         type,
         copyForImage,
-        suggestion.preset
+        suggestion.preset,
+        {
+          industry: formData.industry,
+          businessDescription: formData.businessDescription,
+          targetGender: targetInfo.gender,
+          targetAgeGroups: targetInfo.ageGroups,
+          keywords: targetInfo.keywords,
+        }
       );
 
       const newBanner: BannerMaster = {
