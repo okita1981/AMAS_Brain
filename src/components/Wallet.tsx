@@ -145,32 +145,7 @@ export default function Wallet({ userUid }: WalletProps) {
       if (docSnap.exists()) {
         const data = docSnap.data() as WalletState;
         
-        // Safety check: If there are no transactions but there is a balance,
-        // it's likely legacy dummy data. Reset it to 0 for a clean production state.
-        // We check transactions state which is updated by the other listener.
-        // However, since listeners are independent, we'll check Firestore directly if needed
-        // or just rely on the fact that a new user should have 0.
-        // For now, let's apply the same logic as App.tsx but using the data from this snapshot.
-        // We'll also check if the balance is exactly 45500 which was the dummy value.
-        if (data.balance_total === 45500 || (data.balance_total > 0 && (!transactions || transactions.length === 0))) {
-          console.log("Legacy dummy wallet data detected in Wallet component. Resetting to 0.");
-          const resetData = {
-            ...data,
-            balance_total: 0,
-            balance_ad_budget: 0,
-            tax_holding: 0,
-            status: 'inactive' as "active" | "paused" | "inactive"
-          };
-          setWallet(resetData);
-          updateDoc(walletRef, {
-            balance_total: 0,
-            balance_ad_budget: 0,
-            tax_holding: 0,
-            status: 'inactive'
-          }).catch(err => console.error("Failed to reset legacy wallet in component:", err));
-        } else {
-          setWallet(data);
-        }
+        setWallet(data);
       } else {
         // Initialize wallet if not exists
         setDoc(walletRef, {

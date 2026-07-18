@@ -104,8 +104,22 @@ service cloud.firestore {
              data.status in ['pending', 'completed', 'failed'];
     }
 
+    // Unit B1: a user-created transaction must be a fresh, unapproved claim —
+    // integer, positive amount and no pre-set approval fields (those belong
+    // to the admin approve/reject flow only).
+    function isValidNewTransaction(data) {
+      return data.amount is int &&
+             data.amount > 0 &&
+             !('approvedAt' in data) &&
+             !('approvedBy' in data);
+    }
+
+    // transactions is a legacy embedded array (Unit B1 removes the only code
+    // path that ever wrote to it); the transactions collection is the SSoT.
+    // Kept optional so pre-existing wallet documents that still carry it
+    // remain readable.
     function isValidWallet(data) {
-      return data.keys().hasAll(['balance_total', 'balance_ad_budget', 'tax_holding', 'status', 'autoChargeEnabled', 'autoChargeThreshold', 'autoChargeAmount', 'monthlyUsage', 'transactions']) &&
+      return data.keys().hasAll(['balance_total', 'balance_ad_budget', 'tax_holding', 'status', 'autoChargeEnabled', 'autoChargeThreshold', 'autoChargeAmount', 'monthlyUsage']) &&
              data.balance_total is number &&
              data.balance_ad_budget is number &&
              data.tax_holding is number &&
@@ -113,8 +127,38 @@ service cloud.firestore {
              data.autoChargeEnabled is bool &&
              data.autoChargeThreshold is number &&
              data.autoChargeAmount is number &&
-             data.transactions is list &&
+             (!('transactions' in data) || data.transactions is list) &&
              data.monthlyUsage is map;
+    }
+
+    // Unit B1: a freshly created wallet must start at zero balance/usage.
+    // Both known live creation paths (App.tsx createWallet(), Wallet.tsx's
+    // own init branch) write status 'active' or 'inactive' respectively —
+    // both are accepted; 'paused' is not a valid initial state.
+    function isValidNewWallet(data) {
+      return data.balance_total == 0 &&
+             data.balance_ad_budget == 0 &&
+             data.tax_holding == 0 &&
+             data.status in ['active', 'inactive'] &&
+             (!('transactions' in data) || data.transactions.size() == 0) &&
+             data.monthlyUsage.monthlyDeposit == 0 &&
+             data.monthlyUsage.monthlyCreatives == 0 &&
+             data.monthlyUsage.monthlyCampaigns == 0 &&
+             !('adjustmentCreatives' in data.monthlyUsage) &&
+             !('adjustmentCampaigns' in data.monthlyUsage);
+    }
+
+    // Unit B1: the only owner-writable slice of monthlyUsage is the
+    // campaign/creative usage counters, and only in the non-decreasing
+    // direction (campaign creation increments them by 1 each). monthlyDeposit,
+    // lastResetAt, and the admin-only adjustment* fields must not move.
+    function isMonthlyUsageOwnerUpdateValid(before, after) {
+      return after.monthlyDeposit == before.get('monthlyDeposit', 0) &&
+             after.lastResetAt == before.get('lastResetAt', 0) &&
+             after.get('adjustmentCreatives', 0) == before.get('adjustmentCreatives', 0) &&
+             after.get('adjustmentCampaigns', 0) == before.get('adjustmentCampaigns', 0) &&
+             after.monthlyCampaigns >= before.monthlyCampaigns &&
+             after.monthlyCreatives >= before.monthlyCreatives;
     }
 
     function isValidClient(data) {
@@ -228,14 +272,35 @@ service cloud.firestore {
 
     match /transactions/{transactionId} {
       allow read: if isAdmin() || (isAuthenticated() && resource.data.userUid == request.auth.uid);
-      allow create: if isAuthenticated() && isValidTransaction(request.resource.data) && (request.resource.data.userUid == request.auth.uid || isAdmin());
+      // Unit B1: a user may only self-file a pending claim on their own
+      // behalf. Completing/failing a transaction is the admin approve/reject
+      // flow's job (allow update: if isAdmin(), unchanged below). The Stripe
+      // webhook writes via the Admin SDK and is not subject to these rules.
+      allow create: if isAdmin() || (
+        isAuthenticated() &&
+        isValidTransaction(request.resource.data) &&
+        request.resource.data.userUid == request.auth.uid &&
+        request.resource.data.status == 'pending' &&
+        isValidNewTransaction(request.resource.data)
+      );
       allow update: if isAdmin();
     }
 
     match /wallets/{userId} {
       allow read: if isOwner(userId) || isAdmin();
-      allow create: if isOwner(userId) && isValidWallet(request.resource.data);
-      allow update: if (isOwner(userId) && (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['monthlyUsage']) || isValidWallet(request.resource.data))) || isAdmin();
+      allow create: if isOwner(userId) && isValidWallet(request.resource.data) && isValidNewWallet(request.resource.data);
+      // Unit B1: an owner may only change auto-charge settings and move the
+      // campaign/creative usage counters forward. balance_total,
+      // balance_ad_budget, tax_holding, transactions, and status can only be
+      // changed by an admin (approve/reject flow, monthly reset, usage
+      // adjustment) or by the Stripe webhook (Admin SDK, bypasses rules).
+      allow update: if isAdmin() || (
+        isOwner(userId) &&
+        request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['autoChargeEnabled', 'autoChargeThreshold', 'autoChargeAmount', 'monthlyUsage']) &&
+        isValidWallet(request.resource.data) &&
+        isMonthlyUsageOwnerUpdateValid(resource.data.monthlyUsage, request.resource.data.monthlyUsage)
+      );
     }
 
     match /announcements/{announcementId} {

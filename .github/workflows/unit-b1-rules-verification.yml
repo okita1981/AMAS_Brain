@@ -1,0 +1,40 @@
+name: Unit B1 Rules Verification
+
+on:
+  workflow_dispatch: {}
+  push:
+    paths:
+      - 'firestore.rules'
+      - 'firebase.json'
+      - 'vitest.rules.config.ts'
+      - 'firestore-rules/**'
+      - 'src/App.tsx'
+      - 'src/components/Wallet.tsx'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/unit-b1-rules-verification.yml'
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - run: npm ci
+
+      - name: Firestore Rules tests (Firestore Emulator, demo project)
+        run: npx firebase emulators:exec --project demo-amas-b1 --only firestore "npm run test:rules"
+
+      - name: Unit A regression (Vitest)
+        run: npm test -- --run
+
+      - run: npm run build

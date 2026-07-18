@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:rules": "vitest run --config vitest.rules.config.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.80.0",
@@ -37,10 +38,12 @@
     "vite": "^6.2.0"
   },
   "devDependencies": {
+    "@firebase/rules-unit-testing": "^5.0.1",
     "@types/node": "^22.14.0",
     "@types/recharts": "^1.8.29",
     "@vercel/node": "^3.2.0",
     "autoprefixer": "^10.4.21",
+    "firebase-tools": "^13.29.1",
     "tailwindcss": "^4.1.14",
     "typescript": "~5.8.2",
     "vite": "^6.2.0",
