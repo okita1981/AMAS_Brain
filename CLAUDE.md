@@ -122,6 +122,46 @@ CTR / CVR / CPA / ROAS といった指標は提供する（上級者やデータ
 - 物理的にはフォルダ分離（OneDrive同期・Cloud Runデプロイ単位・依存関係が独立しているため）。
 - 設計の話はAisle側のセッションで、実装の話はここで対応する。
 
+## AMAS 正本体系（Governance・2026-07-19 Gate 2 Closed）
+
+**最新の現在地と工程は [docs/amas-master-roadmap.md](docs/amas-master-roadmap.md) を正とする。** 本セクション以降・本ファイル内の他セクションに記載された現在地・次のタスクと矛盾する場合、Master Roadmapが優先する。
+
+### 正本一覧（6件）
+- [docs/amas-product-charter.md](docs/amas-product-charter.md) — AMASが何を目指すか
+- [docs/amas-decision-log.md](docs/amas-decision-log.md) — なぜその方針を選んだか（D1〜D8）
+- [docs/amas-architecture-review.md](docs/amas-architecture-review.md) — 現在地と目標構造
+- [docs/amas-security-and-wallet-design.md](docs/amas-security-and-wallet-design.md) — 安全性・資金・権限・Walletの設計
+- [docs/amas-improvement-backlog.md](docs/amas-improvement-backlog.md) — 個別Issueの状態と完了条件
+- [docs/amas-master-roadmap.md](docs/amas-master-roadmap.md) — どの順番で到達するか
+
+### Evidence（正本ではない・1件）
+- [docs/amas-platform-review-2026-07-19.md](docs/amas-platform-review-2026-07-19.md) — Gate 1で観測した事実の記録（AMAS Platform Review）
+
+### 現在地
+- Gate 1 Review: Complete
+- Gate 2 Alignment and Canonicalization: Closed
+- Gate 3 Implementation: Not Started
+- Master Roadmap Phase 0（Security and Governance）: Not Started
+- P0〜P3: 全28件Open
+- P0-6（Secret平文混入）: Open / Temporarily Deferred
+- Commercial / Financial Go Gate: 未通過
+
+### 次の工程
+- Phase 0（Security and Governance）の実装範囲をレビュー
+- ユーザーと合意
+- 合意後にSonnetで実装
+- Phase 0を自動的に開始しない
+
+### 統治規則
+- レビュー→合意→実装→検証→正本更新
+- Issue statusの正本はImprovement Backlogのみ
+- Product Decisionの正本はDecision Logのみ
+- PhaseとGateの正本はMaster Roadmapのみ
+- Evidence（Fable Platform Review）を確定仕様として扱わない
+- 実装完了と検証完了を分ける（Code existsとProduction verifiedを混同しない）
+
+---
+
 ## 現在のアーキテクチャ
 - フロントエンド: React 18 + Vite
 - バックエンド: Vercel Functions (api/*.ts, @vercel/node)
@@ -166,7 +206,10 @@ CTR / CVR / CPA / ROAS といった指標は提供する（上級者やデータ
 ### アプリ基底URL
 - APP_URL（OAuth/Stripe コールバックURLの基底。Deploy後に確定URLへ更新）
 
-## 次回やること
+## 次回やること（歴史記録・2026-06-10時点）
+
+**最新の現在地と工程は [docs/amas-master-roadmap.md](docs/amas-master-roadmap.md) を正とする。** 以下は2026-06-10時点の記録であり、2026-07-19のGate 1レビュー・Gate 2正本化以前のメモ。現行のGate運用（Gate 1 Review → Gate 2 Alignment and Canonicalization → Gate 3 Implementation）とは独立した過去の記録として保持する。
+
 - 【次回開始】環境変数（上記「環境変数」セクション参照）をVercelに設定してDeployする。Google Ads / Meta 系は審査中・未接続のためダミー値で登録
 - 各APIキーをAMAS専用に新規発行してから設定すること
 - バナーのテキスト二重表示の修正
