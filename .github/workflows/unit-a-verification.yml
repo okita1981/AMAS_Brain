@@ -1,0 +1,30 @@
+name: Unit A Verification
+
+on:
+  workflow_dispatch: {}
+  push:
+    paths:
+      - 'lib/auth.ts'
+      - 'lib/auth.test.ts'
+      - 'src/lib/apiClient.ts'
+      - 'src/lib/apiClient.test.ts'
+      - 'vitest.config.ts'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/unit-a-verification.yml'
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+
+      - run: npm ci
+
+      - run: npm test -- --run
+
+      - run: npm run build
