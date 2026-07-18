@@ -9,13 +9,24 @@
 
 ## 現在地（2026-07-19時点）
 
-**Phase 0未着手。Gate 2（合意内容の正本化）完了直後の状態。**
+**Gate 3（実装）In Progress。Phase 0（Security and Governance）In Progress。Phase 0全体は未完了。**
 
 - Fable Gate 1レビュー: 完了（Evidence化済み）
-- Gate 2（本文書を含む7文書（6正本＋1 Evidence）の作成）: 完了
-- Phase 0（Security and Governance）: 未着手
-- コード実装・Firestore Rules変更・API変更・環境変数変更・デプロイ状態変更: **一切未実施**
+- Gate 2（本文書を含む7文書（6正本＋1 Evidence）の作成）: Closed
+- Gate 3（実装）: **In Progress**
+- Phase 0（Security and Governance）: **In Progress**（Unit Aのみ完了。Phase 0完了条件（該当14 Issue全件Close）はまだ満たされていない）
+  - **Unit A（API認証基盤＋最小テスト基盤）**: **Complete / Verified**
+    - commit `f1eaee43ab78810bacb4e93aa13ede9b3aa0bb32`
+    - GitHub Actions run `29655579292`
+    - Vitest 12/12 PASS、production build PASS
+  - **Unit B（Wallet・Transaction・Payments整合性）**: Not Started
+  - **Unit C（Drafts・Campaigns・Storageの所有権保護）**: Not Started
+  - **Unit D（Firestore Rules個別修正・監査ID・文言修正）**: Not Started
+- コード実装のうち実施済みはUnit Aのみ（Firestore Rules変更・環境変数変更・デプロイ状態変更は引き続き**一切未実施**）
+- **既存26 APIは引き続き無認証・未保護のまま**（Unit Aは基盤の実装・検証のみで、既存エンドポイントへの適用はUnit B/Cの範囲）
+- P0-3: Open（Milestone 1のみComplete / Verified。詳細は[amas-improvement-backlog.md](amas-improvement-backlog.md) P0-3参照。Close禁止）
 - P0-6（Secret平文混入）: **2026-07-19時点のスナップショット**＝Open / Temporarily Deferred（Commercial / Financial Go Gate前の必須Close対象、開発停止条件ではない）。**最新statusは必ず [amas-improvement-backlog.md](amas-improvement-backlog.md) を参照すること（本文書のstatus記載は更新しない）**
+- **次の工程**: Unit Bの実装範囲レビュー → ユーザー合意 → 実装（Unit Bを自動開始しない）
 
 ---
 

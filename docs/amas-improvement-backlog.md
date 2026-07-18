@@ -46,9 +46,32 @@
 - **対応Phase**: Phase 0
 - **ブロッカー**: Phase 1開始の前提（Phase 1のGoogle Ads PAUSED入稿は認証済みAPIの上で行う必要がある）
 - **受入条件**: 全APIでIDトークン検証必須。無認証リクエストが全エンドポイントで拒否されることを確認
-- **検証証跡**: 未検証
+- **検証証跡**: Milestone 1（API認証基盤）のみ検証済み。既存APIへの適用・所有権検証は未検証（下記Milestone参照）
 - **Close条件**: 受入条件をProduction verifiedで満たすこと
 - **Parking Lot判定**: Active（Phase 0対応）
+
+#### Milestone 1｜API認証基盤
+
+- **状態**: Complete / Verified
+- **実装**:
+  - サーバー側Firebase ID token検証ヘルパー（`lib/auth.ts`）
+  - クライアント側認証fetchヘルパー（`src/lib/apiClient.ts`）
+  - Vitest最小テスト基盤（`vitest.config.ts`）
+  - GitHub Actions検証workflow（`.github/workflows/unit-a-verification.yml`）
+- **Evidence**:
+  - commit `f1eaee43ab78810bacb4e93aa13ede9b3aa0bb32`
+  - GitHub Actions run `29655579292`
+  - Vitest 12/12 PASS
+  - production build PASS
+  - 実施日 2026-07-19
+- **残り**:
+  - 既存APIへの認証適用
+  - 自己申告userIdの排除
+  - 所有権検証
+  - 管理者権限検証
+  - 対象エンドポイントごとの401/403/200検証
+- **Close禁止**: Milestone 1完了だけではP0-3をCloseしない。既存APIへの適用と所有権検証が完了するまでOpenを維持する。
+- **既存26 APIは現時点で未保護。**
 
 ### P0-4｜deploy.tsが実API呼び出しなしで成功を捏造
 - **Priority**: P0

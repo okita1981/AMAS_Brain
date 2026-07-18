@@ -140,17 +140,18 @@ CTR / CVR / CPA / ROAS といった指標は提供する（上級者やデータ
 ### 現在地
 - Gate 1 Review: Complete
 - Gate 2 Alignment and Canonicalization: Closed
-- Gate 3 Implementation: Not Started
-- Master Roadmap Phase 0（Security and Governance）: Not Started
-- P0〜P3: 全28件Open
+- Gate 3 Implementation: **In Progress**
+- Master Roadmap Phase 0（Security and Governance）: **In Progress**（Unit A: Complete / Verified。詳細は[docs/amas-master-roadmap.md](docs/amas-master-roadmap.md)参照）
+- P0〜P3: 全28件Open（P0-3はMilestone 1完了。詳細は[docs/amas-improvement-backlog.md](docs/amas-improvement-backlog.md)参照）
+- **既存API（26本）は引き続き未保護**
 - P0-6（Secret平文混入）: Open / Temporarily Deferred
 - Commercial / Financial Go Gate: 未通過
 
 ### 次の工程
-- Phase 0（Security and Governance）の実装範囲をレビュー
+- Unit Bの実装範囲レビュー
 - ユーザーと合意
 - 合意後にSonnetで実装
-- Phase 0を自動的に開始しない
+- Unit Bを自動的に開始しない
 
 ### 統治規則
 - レビュー→合意→実装→検証→正本更新

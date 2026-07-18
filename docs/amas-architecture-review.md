@@ -23,6 +23,25 @@ Fable Reviewの証拠強度表（Evidence §4）を要約する。詳細はEvide
 
 **構成**: React SPA（App.tsx単一10,326行）＋Vercel Functions 26本＋Firestore＋Firebase Storage＋Stripe。cron/キュー基盤なし。媒体抽象化レイヤーなし。
 
+### Unit A実施後の追記（2026-07-19・Phase 0 In Progress）
+
+**「認証基盤がある」ことと「APIが保護されている」ことは明確に別事実であり、混同しない。**
+
+**成立済み**:
+- `lib/auth.ts`にFirebase ID token検証ヘルパー（`requireAuth`）が存在する
+- `src/lib/apiClient.ts`にID token付きfetchヘルパー（`apiFetch`）が存在する
+- Vitestによる単体テスト12件（サーバー側6件・クライアント側6件）がCI（GitHub Actions run `29655579292`）でPASS
+- GitHub Actionsでproduction build（`vite build`）がPASS
+
+**未成立**:
+- 既存API（`api/*.ts`全26本）は上記の認証ヘルパーを一切呼び出していない
+- 既存のfetch呼び出し箇所は`apiClient.ts`へ移行していない
+- 自己申告の`userId`（body/query）が既存APIに残っている
+- 所有権チェック（`campaignData.ownerUid === req.auth.uid`等）は未実装
+- **既存26 APIは引き続き未保護のまま**
+
+詳細・Evidenceは[amas-improvement-backlog.md](amas-improvement-backlog.md) P0-3のMilestone 1を参照（本文書では複製しない）。目標アーキテクチャ（§2）・残す/再設計/廃止の方針（§3）は変更しない。
+
 ## 2. 目標アーキテクチャ
 
 D2（媒体複雑性の吸収）・D3（アカウントモデルのユーザー体験統一）・D8（Google Ads PAUSED E2E）を満たす構成:
