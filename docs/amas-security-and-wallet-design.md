@@ -25,6 +25,7 @@
 
 - サーバー側で残高（balance_total）・広告費原資（balance_ad_budget）・税相当額（tax_holding）を管理する台帳へ再設計。
 - **現状**: クライアント側からの直接残高書き込みが可能（Firestoreルールの型チェックのみ、Backlog: P0-1）。クライアント直接残高加算の死にコードも残存（Backlog: P2-3）。
+- **2026-07-19追記**: サーバー側Admin SDKが構造的にClientと異なるFirestore databaseへ接続していたことが判明（Backlog: P0-7）。Wallet台帳の「サーバー側検証済みトランザクションのみで残高変動させる」という目標は、その書き込み先がClientの読み取り先と一致していて初めて意味を持つ。Unit DB-Aでコード修正済みだが、実データの所在確認・本番反映は未完了（詳細は[amas-master-roadmap.md](amas-master-roadmap.md)「Unit DB-A」章）。
 - **目標**: 残高変動はサーバー側の検証済みトランザクションのみで発生させる。
 
 ## 5. チャージ
@@ -85,6 +86,8 @@ D4（Decision Log）で確定した表示例をそのまま正本とする:
 | P0-4 | deploy.tsが実API呼び出しなしで成功を捏造 |
 | P0-5 | 媒体資格情報の平文保存 |
 | P0-6 | Secret平文混入（`AMAS諸々メモ.docx`） |
+| P0-7 | Client FirestoreとAdmin SDKのdatabase不一致（2026-07-19発見） |
+| P0-8 | firebase.jsonのFirestore Rules deploy targetが`(default)`になる（2026-07-19発見） |
 
 ### P0-6の設計上の扱い
 

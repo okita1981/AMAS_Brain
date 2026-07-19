@@ -19,14 +19,22 @@
     - commit `f1eaee43ab78810bacb4e93aa13ede9b3aa0bb32`
     - GitHub Actions run `29655579292`
     - Vitest 12/12 PASS、production build PASS
-  - **Unit B（Wallet・Transaction・Payments整合性）**: Not Started
+  - **Unit B1（Wallet・Transaction Firestore Rules）**: **実装済み・CI検証済み・本番反映未確認**
+    - commit `93e6d71`
+    - CI run `29665788675`（Rules 39 + Unit A回帰12 = 51件PASS、build PASS）
+    - **本番Firebase Rulesへのdeploy・Production検証は未実施**。対象Issue（P0-1/P0-2/P1-7/P2-3/P3-3）はCloseしていない
+  - **Unit DB-A（Database Alignment）**: **実装済み・CI検証（本レビュー完了後に追記）・本番反映未確認・実データ所在確認Blocked**
+    - feature branch `fix/database-alignment`（main未merge）
+    - 詳細は下記「Unit DB-A（Database Alignment）」章参照
+  - **Unit B2/B3（Stripe冪等性等、Unit B本来のスコープ）**: Not Started
   - **Unit C（Drafts・Campaigns・Storageの所有権保護）**: Not Started
   - **Unit D（Firestore Rules個別修正・監査ID・文言修正）**: Not Started
-- コード実装のうち実施済みはUnit Aのみ（Firestore Rules変更・環境変数変更・デプロイ状態変更は引き続き**一切未実施**）
+- コード実装の実施済み範囲: Unit A・Unit B1・Unit DB-A（Unit DB-Aはfeature branch上のみ、main未反映）。Firestore Rules本番deploy・環境変数変更・デプロイ状態変更は引き続き**一切未実施**
 - **既存26 APIは引き続き無認証・未保護のまま**（Unit Aは基盤の実装・検証のみで、既存エンドポイントへの適用はUnit B/Cの範囲）
 - P0-3: Open（Milestone 1のみComplete / Verified。詳細は[amas-improvement-backlog.md](amas-improvement-backlog.md) P0-3参照。Close禁止）
 - P0-6（Secret平文混入）: **2026-07-19時点のスナップショット**＝Open / Temporarily Deferred（Commercial / Financial Go Gate前の必須Close対象、開発停止条件ではない）。**最新statusは必ず [amas-improvement-backlog.md](amas-improvement-backlog.md) を参照すること（本文書のstatus記載は更新しない）**
-- **次の工程**: Unit Bの実装範囲レビュー → ユーザー合意 → 実装（Unit Bを自動開始しない）
+- P0-7/P0-8/P1-9（Database Alignment関連・2026-07-19 Unit DB-Aで新規登録）: Open。詳細は[amas-improvement-backlog.md](amas-improvement-backlog.md)参照。Close禁止（本番反映・実データ所在確認が未完了のため）
+- **次の工程**: Unit DB-Aの本番反映Gate（データ移行要否の判定結果に応じた移行→mainへmerge→Firestore Rules deploy→本番確認）から開始する。Unit B2/B3・Unit Cへは進まない
 
 ---
 
@@ -38,10 +46,30 @@
 
 **完了条件**:
 - Backlogの「対応Phase: Phase 0」に該当する全Issueがstatus=Closeになること。該当Issue: **P0-1, P0-2, P0-3, P0-5, P1-4, P1-5, P1-7, P2-1, P2-3, P2-4, P2-6, P3-2, P3-3, P3-5**（詳細・受入条件は[amas-improvement-backlog.md](amas-improvement-backlog.md)参照）
+- **（2026-07-19追加）P0-7, P0-8, P1-9, P2-9, P2-10, P2-11**（Unit DB-Aで新規発見・登録。詳細は[amas-improvement-backlog.md](amas-improvement-backlog.md)参照）
 - 認証・認可・Wallet台帳・監査の再設計がProduction verifiedで動作確認されること
 - **テスト基盤の起動**: 本Phaseで新設・変更した認証・認可・Wallet台帳・監査の各モジュールに対応するテストが存在すること（全面遡及テストの整備は求めない。詳細は後述「テスト・品質の横断要件」章）
 
-**検証証跡**: 未着手のため該当なし。
+**検証証跡**: Unit A・Unit B1・Unit DB-A実装分はCI検証済み（各Unitの詳細参照）。Phase 0全体としては未完了。
+
+---
+
+## Unit DB-A｜Database Alignment（2026-07-19）
+
+**位置づけ**: Unit B1のFirestore Rules本番deployを進める前提として、Client（`src/firebase.ts`）とAdmin SDK（`lib/firebase.ts`）のFirestore接続先が一致しているかを確認したところ、Admin SDKが構造的にnamed database（`ai-studio-449e39ee-b303-411e-af3a-a74c5ccb0886`）ではなく`(default)`データベースへ接続する実装になっていたことが判明した（詳細はBacklog P0-7/P0-8参照）。本Unitはこの不一致を解消する。
+
+**実施内容**:
+1. 新規Issue登録: P0-7, P0-8, P1-9, P1-10, P2-9, P2-10, P2-11, P3-7（[amas-improvement-backlog.md](amas-improvement-backlog.md)参照）
+2. `lib/firebase.ts`: `admin.firestore()`（レガシー名前空間API、常に`(default)`へ接続）から`getFirestore(admin.app(), firebaseConfig.firestoreDatabaseId)`（モジュラーAPI）へ変更。database ID/project IDは`firebase-applet-config.json`を唯一のソースとして参照
+3. project ID不一致のfail-fastガードを追加（Service Accountのproject_idとClient設定のprojectIdを比較、不一致なら起動時にthrow）
+4. `firebase.json`: オブジェクト形式を維持したまま`database`キーを追加（配列形式は不採用。`--only firestore:rules`との組み合わせで空deployになることをfirebase-tools実行確認済みのため）
+5. `lib/firebase.test.ts`（新規、9テスト）: project一致/不一致・database ID参照・Service Account未設定/空文字/不正JSON拒否・Secret非露出を確認
+6. 実データ所在確認（Step 6）: Firebase CLIに認証済みアカウントがなく、ローカルにもService Accountファイル・`.env.local`が存在しないため、**確認不能（Blocked）**。ユーザーによるFirebase Console/CLI認証後の確認が必要
+7. データ移行要否判定: 上記によりE（確認不能→本番merge/deployをBlockedとする）
+
+**状態**: 実装済み。CI検証は本レビュー完了後に追記。feature branch `fix/database-alignment`上のみ、main未反映。
+
+**次回開始地点**: ユーザーがFirebase Console/CLIで`(default)`・named database双方のデータ所在（users/wallets/transactions等）を確認 → 移行要否の最終判定 → （必要なら移行）→ `fix/database-alignment`をmainへmerge → Firestore Rules本番deploy（Unit B1分含む）→ 本番検証、の順で進める。
 
 ---
 

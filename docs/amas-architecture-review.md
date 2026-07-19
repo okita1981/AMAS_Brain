@@ -42,6 +42,26 @@ Fable Reviewの証拠強度表（Evidence §4）を要約する。詳細はEvide
 
 詳細・Evidenceは[amas-improvement-backlog.md](amas-improvement-backlog.md) P0-3のMilestone 1を参照（本文書では複製しない）。目標アーキテクチャ（§2）・残す/再設計/廃止の方針（§3）は変更しない。
 
+### Unit DB-A実施後の追記（2026-07-19・Database Alignment）
+
+**「Rulesが正しいこと」と「そのRulesが実際に読み書きされているdatabaseに適用されていること」は明確に別事実であり、混同しない。**
+
+Unit B1でFirestore Rules（wallets/transactions）を修正したが、本番deployに進む前にClient/Admin SDK/firebase.jsonの接続先を確認したところ、**Admin SDK（`lib/firebase.ts`、サーバー側。`api/*`の12ファイルが利用）が構造的にnamed database（`ai-studio-449e39ee-b303-411e-af3a-a74c5ccb0886`）ではなく`(default)`データベースへ接続していた**ことが判明した（`admin.firestore()`という引数を取らないレガシー名前空間APIの仕様上の制約）。同様に`firebase.json`も`database`キー不在により`(default)`をdeploy対象としていた。
+
+**成立済み**（feature branch `fix/database-alignment`上）:
+- `lib/firebase.ts`がモジュラーAPI（`getFirestore(admin.app(), firebaseConfig.firestoreDatabaseId)`）でnamed databaseへ接続する
+- database ID/project IDの単一ソース化（`firebase-applet-config.json`をClient/Server双方が参照）
+- project ID不一致のfail-fastガード
+- `firebase.json`への`database`キー追加
+
+**未成立**:
+- mainへのmerge・Vercel Production反映
+- Firestore Rules本番deploy（Unit B1分含む）
+- `(default)`とnamed database双方の実データ所在確認（Firebase CLI認証がサンドボックスにないため未実施）
+- データ移行要否の実施判断
+
+詳細は[amas-improvement-backlog.md](amas-improvement-backlog.md) P0-7/P0-8/P1-9、[amas-master-roadmap.md](amas-master-roadmap.md)「Unit DB-A」章を参照（本文書では複製しない）。
+
 ## 2. 目標アーキテクチャ
 
 D2（媒体複雑性の吸収）・D3（アカウントモデルのユーザー体験統一）・D8（Google Ads PAUSED E2E）を満たす構成:

@@ -99,6 +99,41 @@
 - **Close条件**: 受入条件をProduction verifiedで満たすこと
 - **Parking Lot判定**: Active（Phase 0対応）
 
+### P0-7｜Client FirestoreとAdmin SDKのdatabase不一致
+
+- **Priority**: P0
+- **観測事実**: `src/firebase.ts`（Client）は`getFirestore(app, firebaseConfig.firestoreDatabaseId)`でnamed database（`ai-studio-449e39ee-b303-411e-af3a-a74c5ccb0886`）へ明示的に接続する一方、`lib/firebase.ts`（Admin SDK・Server）は`admin.firestore()`という引数を取らないレガシー名前空間APIを使用していた。このAPIは常にプロジェクトの`(default)`データベースへ接続する（`firebase-admin@13.7.0`の型定義で確認）。`api/payments/webhook.ts`を含む12ファイルすべてがこの`db`を経由してwallets/transactionsへ書き込む
+- **影響**: Stripe webhookによる実課金処理が、UIが読み取るnamed databaseとは別のdatabaseへ書き込まれていた可能性がある。実データの所在はUnit DB-A Step 6で読み取り専用確認を試みたが、Firebase CLI認証情報がサンドボックスに存在しないため確認不能（下記Milestone参照）
+- **根拠**: `lib/firebase.ts`（修正前）、`node_modules/firebase-admin/lib/firebase-namespace-api.d.ts:43`、`api/payments/webhook.ts:66,90-91`
+- **status**: Open
+- **対応Phase**: Phase 0（Security and Governance）
+- **ブロッカー**: Phase 0完了の必須条件。Unit B1のFirestore Rules本番deployより先に解決すべき（Rulesの内容がどれだけ正しくても、書き込み先DBが違えば無意味なため）
+- **受入条件**: Admin SDKがnamed database（`ai-studio-449e39ee-b303-411e-af3a-a74c5ccb0886`）へ接続し、Client/Admin/Rulesの接続先が一致することをProduction verifiedで確認
+- **検証証跡**: 未検証（Unit DB-Aでコード修正・CI検証まで実施。本番反映・実データ所在確認は未完了）
+- **Close条件**: Production verifiedで接続先一致を確認、かつ実データ所在確認（Step 6）が完了していること
+- **Parking Lot判定**: Active（Phase 0対応・最優先）
+
+#### Milestone 1｜Admin SDKのnamed database接続化（Unit DB-A）
+
+- **状態**: 実装済み・CI検証未完了→検証後に追記
+- **実装**: `lib/firebase.ts`の`db` exportを`admin.firestore()`から`getFirestore(admin.app(), firebaseConfig.firestoreDatabaseId)`（モジュラーAPI）へ変更。database IDは`firebase-applet-config.json`を唯一のソースとして参照（ハードコード禁止）
+- **残り**: 本番反映（mainへのmerge・Vercel Production deploy）、実データ所在の確認（Firebase CLI認証がサンドボックスにないため未実施）、データ移行要否の実施判断
+- **Close禁止**: 本Milestone完了だけではP0-7をCloseしない
+
+### P0-8｜firebase.jsonのFirestore Rules deploy targetが`(default)`になる
+
+- **Priority**: P0
+- **観測事実**: 修正前の`firebase.json`は`firestore.database`キーを持たないオブジェクト形式であり、firebase-tools（`lib/firestore/fsConfig.js`の`getFirestoreConfig()`）の実装上、`databaseId`が`(default)`に解決される。`firebase deploy --only firestore:rules`を実行した場合、named database（`ai-studio-449e39ee-b303-411e-af3a-a74c5ccb0886`）ではなく`(default)`へRulesがdeployされる。この挙動はfirebase-tools 13.35.1の`getFirestoreConfig()`をネットワーク接続・ログインなしで直接実行し、実際の戻り値で確認した（内部コード読み取りのみに依拠していない）
+- **影響**: Unit B1で作成したFirestore Rules（P0-1/P0-2等の修正）が、意図しないdatabaseへdeployされ、named database側は無防備なまま残るリスク
+- **根拠**: `firebase.json`（修正前）、`node_modules/firebase-tools/lib/firestore/fsConfig.js:28-36`（実行確認済み）
+- **status**: Open
+- **対応Phase**: Phase 0
+- **ブロッカー**: Unit B1のFirestore Rules本番deployの前提条件
+- **受入条件**: `firebase.json`が`database`キーを持つオブジェクト形式であり、`--only firestore:rules`実行時にnamed databaseが正しく選択されることを確認
+- **検証証跡**: `database`キー追加を実装済み。実deployでの確認は未実施（本番deploy自体が今回のスコープ外）
+- **Close条件**: 実際のRules deployでnamed databaseが対象になることをProduction verifiedで確認
+- **Parking Lot判定**: Active（Phase 0対応・P0-7と同時解決）
+
 ### P0-6｜Secret平文混入（AMAS諸々メモ.docx）
 - **Priority**: P0
 - **観測事実**: `AMAS諸々メモ.docx`本文にGoogle OAuth Client Secret・Google Ads Developer Token・Meta Access Token・Anthropic API Keyが平文で混入している（OneDrive同期フォルダ上）
@@ -226,6 +261,34 @@
 - **Close条件**: Production verifiedで確認
 - **Parking Lot判定**: Active（Phase 1対応）
 
+### P1-9｜Client projectとAdmin projectの一致を保証する仕組みがない
+
+- **Priority**: P1
+- **観測事実**: `lib/firebase.ts`（修正前）は`FIREBASE_SERVICE_ACCOUNT_KEY`のservice account project_idと、Client設定（`firebase-applet-config.json`のprojectId）の一致を検証せず初期化していた
+- **影響**: Vercel環境変数の設定ミスにより、Admin SDKが意図しないFirebaseプロジェクトへ接続しても検知されない
+- **根拠**: `lib/firebase.ts`（修正前、初期化ブロック全体）
+- **status**: Open
+- **対応Phase**: Phase 0
+- **ブロッカー**: なし（P0-7と根本原因が近いが、project一致とdatabase一致は独立した軸のため別Issueとして管理）
+- **受入条件**: project_id不一致時に起動時（コールドスタート時）にfail-fastで例外を投げることを確認
+- **検証証跡**: Unit DB-Aで実装・Vitestモックテストを追加。CI検証は本レビュー完了後に追記
+- **Close条件**: Production verifiedで不一致検知が機能することを確認（実際に不一致を起こして確認するテストは本番では危険なため、モックテスト＋コードレビューでの確認をもって足りるとする方針は別途合意が必要）
+- **Parking Lot判定**: Active（Phase 0対応・P0-7実装の一部として今回同時対応）
+
+### P1-10｜main push即Production反映という運用リスク
+
+- **Priority**: P1
+- **観測事実**: Vercel既定のGitHub連携により、`main`へのpush/mergeがそのままProduction deployへ反映される（直近commit時刻とdeployment作成時刻の相関から高確度で推定、Vercel Dashboard上の確定設定は未確認）。CIによる事前検証を経ずに本番へ反映される構造
+- **影響**: 検証未了のコードがmainへpushされた瞬間に本番へ反映されるリスク。Database Alignmentのような接続先を変更する変更ほど、事前検証の重要性が高い
+- **根拠**: 前回報告（B1 Deployment Readiness Review・Firebase Identity and Database Target Report）§12、Vercel標準のGitHub連携動作
+- **status**: Open
+- **対応Phase**: Parking Lot（技術Phaseではなく運用ルールの変更で対応。Unit DB-A時点でfeature branch運用（`fix/database-alignment`）を開始することで実務上の緩和を開始した）
+- **ブロッカー**: なし
+- **受入条件**: feature branch→CI Green→ユーザー合意→mainへmergeというワークフローが標準運用として定着すること
+- **検証証跡**: Unit DB-Aから本ワークフローの運用を開始（本Issueとしての受入条件充足はまだ）
+- **Close条件**: 運用ルールとして複数Unitにわたり定着したことを確認した時点でClose（技術的な実装物ではなく運用の定着が条件のため、Static/Production verifiedのいずれにも該当しない特殊なClose条件とする）
+- **Parking Lot判定**: Parking Lot（運用ルールの定着待ち）
+
 ---
 
 ## P2（実運用・保守・UXを大きく損なう問題）
@@ -334,6 +397,48 @@
 - **Close条件**: Phase 3着手時に再評価
 - **Parking Lot判定**: Parking Lot
 
+### P2-9｜Wallet初期作成経路の重複（初期値不一致）
+
+- **Priority**: P2
+- **観測事実**: `App.tsx`の`createWallet()`と`Wallet.tsx`独自のwallet作成分岐が、異なる初期値を書き込む（`status`: `'active'` vs `'inactive'`、`autoChargeThreshold`/`autoChargeAmount`: `0`/`0` vs `10000`/`55000`、`Wallet.tsx`側は型定義にない`lastResetAt`をトップレベルに書き込む）
+- **影響**: どちらの経路でwalletが作られるかによってユーザーの初期状態が異なる。データ整合性・将来のマイグレーション設計を複雑にする
+- **根拠**: Unit B1実装時に発見（`src/App.tsx`のcreateWallet相当ブロック・`src/components/Wallet.tsx:176-193`付近）
+- **status**: Open
+- **対応Phase**: Phase 0（Wallet台帳再設計時に統一）
+- **ブロッカー**: なし
+- **受入条件**: wallet初期作成経路が単一化され、初期値が一貫することを確認
+- **検証証跡**: 未検証
+- **Close条件**: Production verifiedで単一経路化を確認
+- **Parking Lot判定**: Active（Phase 0対応）
+
+### P2-10｜admin承認処理の非atomic性
+
+- **Priority**: P2
+- **観測事実**: 銀行振込等のadmin承認フロー（transactionsの`status`更新と対応するwallet残高更新）が単一のFirestore `runTransaction`で行われず、個別のupdateとして実行されうる（`api/payments/webhook.ts`のStripeパスは`runTransaction`済みだが、admin手動承認パスの実装状況は本Unitでは未精査）
+- **影響**: 承認処理の途中でエラーが発生した場合、transaction statusとwallet残高が不整合になるリスク
+- **根拠**: Unit DB-Aレビュー時の指摘（詳細コード箇所の特定は未実施、次回精査が必要）
+- **status**: Open
+- **対応Phase**: Phase 0（Wallet台帳再設計時に精査・対応）
+- **ブロッカー**: なし
+- **受入条件**: admin承認に関わる全てのwallet/transaction更新が単一のFirestore Transactionで行われることを確認
+- **検証証跡**: 未検証（該当コード箇所の特定自体が未完了）
+- **Close条件**: Production verifiedで確認
+- **Parking Lot判定**: Active（Phase 0対応・要追加調査）
+
+### P2-11｜Transaction型とFirestore実データの不一致（未確認・要Step 6完了後再評価）
+
+- **Priority**: P2
+- **観測事実**: `types.ts`等のTransaction型定義と、実際にFirestoreへ書き込まれているtransactionsドキュメントの形状（`api/payments/webhook.ts`が書き込むフィールドと、Firestore Rules側の`isValidTransaction`が要求するフィールド）に差異がある可能性がある。ただし本Unitでは実データそのものを確認していない（Step 6が認証不能のためBlocked）ため、差異の実在は未確認
+- **影響**: 型定義と実データの乖離が続くと、将来のリファクタ・マイグレーションで見落としが生じるリスク
+- **根拠**: コードレビューのみ（`types.ts` vs `api/payments/webhook.ts:118-128` vs `firestore.rules`のtransactions create条件）。実データとの突合は未実施
+- **status**: Open
+- **対応Phase**: Phase 0
+- **ブロッカー**: なし
+- **受入条件**: 実データ確認（Step 6相当の作業がFirebase CLI認証復旧後に完了）後、型定義との差異を再評価し必要な修正を行う
+- **検証証跡**: 未検証（実データ未確認のため、本Issueの重大性自体が暫定評価）
+- **Close条件**: 実データ確認後に再評価し、差異がなければ観察事項としてClose、差異があれば修正後Close
+- **Parking Lot判定**: Active（Phase 0対応・Step 6完了待ち）
+
 ---
 
 ## P3（改善価値はあるが現在のProduct Goalを阻止しない問題）
@@ -416,16 +521,38 @@
 - **Close条件**: 対応不要（観察事項のため恒常的にOpenのまま保持してよい）
 - **Parking Lot判定**: Parking Lot（対応不要の記録事項）
 
+### P3-7｜onDraftRestored型エラー（既知・対応範囲外を継続）
+
+- **Priority**: P3
+- **観測事実**: `App.tsx`内の`onDraftRestored`まわりに、Unit A・Unit B1双方で確認済みの既存TypeScriptエラーが残存する（`tsc --noEmit`で検出。両Unitとも意図的に対応範囲外とし、lintをCIワークフローから除外することで回避してきた）
+- **影響**: 軽微（型エラーのみ、実行時には影響しない。CIの`lint`ステップを別途走らせると失敗するため、既存2つのUnit workflowは`npm run lint`を意図的に含めていない）
+- **根拠**: Unit A Verification Recovery時の`tsc --noEmit`全体実行結果、Unit B1完了報告
+- **status**: Open
+- **対応Phase**: Parking Lot
+- **ブロッカー**: なし
+- **受入条件**: 型エラーを修正し、CIワークフローへ`npm run lint`を含められる状態にする
+- **検証証跡**: 未検証
+- **Close条件**: 型エラー修正後、CIのlintステップがGreenになることを確認
+- **Parking Lot判定**: Parking Lot（対応不要ではないが緊急性なし。今回Unit DB-Aでも対応範囲外として維持）
+
+### 銀行振込税計算問題（独立Issue化なし・記録のみ）
+
+Fable Gate 1レビュー由来の候補に「銀行振込の税計算不整合」があったが、当該機能のUI・作成経路（`handleCharge`に付随していた343行の死にコードJSXブロック）はUnit B1（commit `93e6d71`）で完全に削除済みである。表示自体が存在しないため独立Issueとしては登録しない。将来Wallet台帳再設計（Phase 0）で銀行振込チャージ機能を再実装する際に、税計算ロジックを新規設計として扱う。
+
 ---
 
 ## 集計
 
 | Priority | 件数 | Open | Open/Temporarily Deferred | Closed |
 |---|---|---|---|---|
-| P0 | 6 | 5 | 1（P0-6） | 0 |
-| P1 | 8 | 8 | 0 | 0 |
-| P2 | 8 | 8 | 0 | 0 |
-| P3 | 6 | 6 | 0 | 0 |
-| **合計** | **28** | **27** | **1** | **0** |
+| P0 | 8 | 7 | 1（P0-6） | 0 |
+| P1 | 10 | 10 | 0 | 0 |
+| P2 | 11 | 11 | 0 | 0 |
+| P3 | 7 | 7 | 0 | 0 |
+| **合計** | **36** | **35** | **1** | **0** |
 
-**Closeされた項目はない。P0-6は誤ってCloseされていない。**
+**Closeされた項目はない。P0-6は誤ってCloseされていない。P0-7/P0-8/P1-9はUnit DB-Aで実装・CI検証まで進めたが、本番反映・実データ所在確認が未完了のためCloseしていない。**
+
+### 2026-07-19 Unit DB-A（Database Alignment）による追加
+
+新規登録: P0-7, P0-8, P1-9, P1-10, P2-9, P2-10, P2-11, P3-7（計8件）。既存28件のstatusは変更していない。

@@ -141,17 +141,17 @@ CTR / CVR / CPA / ROAS といった指標は提供する（上級者やデータ
 - Gate 1 Review: Complete
 - Gate 2 Alignment and Canonicalization: Closed
 - Gate 3 Implementation: **In Progress**
-- Master Roadmap Phase 0（Security and Governance）: **In Progress**（Unit A: Complete / Verified。詳細は[docs/amas-master-roadmap.md](docs/amas-master-roadmap.md)参照）
-- P0〜P3: 全28件Open（P0-3はMilestone 1完了。詳細は[docs/amas-improvement-backlog.md](docs/amas-improvement-backlog.md)参照）
+- Master Roadmap Phase 0（Security and Governance）: **In Progress**（Unit A: Complete / Verified。Unit B1: 実装済み・CI検証済み・本番反映未確認。Unit DB-A: 実装済み・feature branch上のみ・本番反映未確認・実データ所在確認Blocked。詳細は[docs/amas-master-roadmap.md](docs/amas-master-roadmap.md)参照）
+- P0〜P3: 全36件Open（P0-6のみOpen / Temporarily Deferred。P0-3はMilestone 1完了。P0-7/P0-8/P1-9は2026-07-19 Unit DB-Aで新規登録・実装済みだが未Close。詳細は[docs/amas-improvement-backlog.md](docs/amas-improvement-backlog.md)参照）
 - **既存API（26本）は引き続き未保護**
+- **Admin SDKのFirestore接続先がClientと一致しない構造的問題を2026-07-19に発見・feature branch上で修正済み（`fix/database-alignment`、main未merge）。実データの所在確認はFirebase CLI認証がサンドボックスにないため未実施**
 - P0-6（Secret平文混入）: Open / Temporarily Deferred
 - Commercial / Financial Go Gate: 未通過
 
 ### 次の工程
-- Unit Bの実装範囲レビュー
-- ユーザーと合意
-- 合意後にSonnetで実装
-- Unit Bを自動的に開始しない
+- Unit DB-Aの本番反映Gateから開始する: ユーザーによるFirebase Console/CLIでの実データ所在確認 → データ移行要否の最終判定 → （必要なら移行）→ `fix/database-alignment`をmainへmerge → Firestore Rules本番deploy（Unit B1分含む）→ 本番検証
+- 上記完了後にUnit B2/B3（Stripe冪等性等）・Unit Cへ進む
+- Unit B2/B3・Unit Cを自動的に開始しない
 
 ### 統治規則
 - レビュー→合意→実装→検証→正本更新
