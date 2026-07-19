@@ -67,7 +67,9 @@
 6. 実データ所在確認（Step 6）: Firebase CLIに認証済みアカウントがなく、ローカルにもService Accountファイル・`.env.local`が存在しないため、**確認不能（Blocked）**。ユーザーによるFirebase Console/CLI認証後の確認が必要
 7. データ移行要否判定: 上記によりE（確認不能→本番merge/deployをBlockedとする）
 
-**状態**: 実装済み。CI検証は本レビュー完了後に追記。feature branch `fix/database-alignment`上のみ、main未反映。
+**状態**: 実装済み・CI検証済み・本番反映未確認。feature branch `fix/database-alignment`上のみ、main未反映。
+- commit `eab0bfe`（実装）/ `8560322`（正本更新）
+- GitHub Actions run [`29669114285`](https://github.com/okita1981/AMAS_Brain/actions/runs/29669114285): Firestore Rules 39/39 PASS、Unit A regression 20/20 PASS（既存12＋新規`lib/firebase.test.ts` 8）、production build PASS
 
 **次回開始地点**: ユーザーがFirebase Console/CLIで`(default)`・named database双方のデータ所在（users/wallets/transactions等）を確認 → 移行要否の最終判定 → （必要なら移行）→ `fix/database-alignment`をmainへmerge → Firestore Rules本番deploy（Unit B1分含む）→ 本番検証、の順で進める。
 

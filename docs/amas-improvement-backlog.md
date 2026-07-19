@@ -115,8 +115,9 @@
 
 #### Milestone 1｜Admin SDKのnamed database接続化（Unit DB-A）
 
-- **状態**: 実装済み・CI検証未完了→検証後に追記
+- **状態**: 実装済み・CI検証済み・本番反映未確認
 - **実装**: `lib/firebase.ts`の`db` exportを`admin.firestore()`から`getFirestore(admin.app(), firebaseConfig.firestoreDatabaseId)`（モジュラーAPI）へ変更。database IDは`firebase-applet-config.json`を唯一のソースとして参照（ハードコード禁止）
+- **Evidence**: feature branch `fix/database-alignment`、commit `eab0bfe`（実装）/ `8560322`（正本更新）、GitHub Actions run [`29669114285`](https://github.com/okita1981/AMAS_Brain/actions/runs/29669114285)（Firestore Rules 39/39 PASS・Unit A regression 20/20 PASS〈既存12＋新規`lib/firebase.test.ts` 8〉・production build PASS）、実施日2026-07-19
 - **残り**: 本番反映（mainへのmerge・Vercel Production deploy）、実データ所在の確認（Firebase CLI認証がサンドボックスにないため未実施）、データ移行要否の実施判断
 - **Close禁止**: 本Milestone完了だけではP0-7をCloseしない
 
