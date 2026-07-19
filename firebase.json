@@ -1,5 +1,6 @@
 {
   "firestore": {
+    "database": "ai-studio-449e39ee-b303-411e-af3a-a74c5ccb0886",
     "rules": "firestore.rules"
   },
   "emulators": {
